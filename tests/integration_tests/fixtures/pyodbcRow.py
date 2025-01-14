@@ -14,14 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=invalid-name
-
-
-class Row(object):
+class Row:
     def __init__(self, values):
         self.values = values
 
-    def __name__(self):  # pylint: disable=no-self-use
+    def __name__(self):
         return "Row"
 
     def __iter__(self):

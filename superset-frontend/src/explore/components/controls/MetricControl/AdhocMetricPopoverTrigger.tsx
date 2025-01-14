@@ -16,16 +16,21 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { ReactNode } from 'react';
-import { Metric } from '@superset-ui/core';
-import Popover from 'src/components/Popover';
+import { PureComponent, ReactNode } from 'react';
+import { Metric, t } from '@superset-ui/core';
 import AdhocMetricEditPopoverTitle from 'src/explore/components/controls/MetricControl/AdhocMetricEditPopoverTitle';
 import { ExplorePopoverContent } from 'src/explore/components/ExploreContentPopover';
+import {
+  ISaveableDatasource,
+  SaveDatasetModal,
+} from 'src/SqlLab/components/SaveDatasetModal';
+import { Datasource } from 'src/explore/types';
 import AdhocMetricEditPopover, {
   SAVED_TAB_KEY,
 } from './AdhocMetricEditPopover';
 import AdhocMetric from './AdhocMetric';
 import { savedMetricType } from './types';
+import ControlPopover from '../ControlPopover/ControlPopover';
 
 export type AdhocMetricPopoverTriggerProps = {
   adhocMetric: AdhocMetric;
@@ -33,24 +38,26 @@ export type AdhocMetricPopoverTriggerProps = {
   columns: { column_name: string; type: string }[];
   savedMetricsOptions: savedMetricType[];
   savedMetric: savedMetricType;
-  datasourceType: string;
+  datasource: Datasource & ISaveableDatasource;
   children: ReactNode;
-  createNew?: boolean;
   isControlledComponent?: boolean;
   visible?: boolean;
   togglePopover?: (visible: boolean) => void;
   closePopover?: () => void;
+  isNew?: boolean;
 };
 
 export type AdhocMetricPopoverTriggerState = {
+  adhocMetric: AdhocMetric;
   popoverVisible: boolean;
   title: { label: string; hasCustomLabel: boolean };
   currentLabel: string;
   labelModified: boolean;
   isTitleEditDisabled: boolean;
+  showSaveDatasetModal: boolean;
 };
 
-class AdhocMetricPopoverTrigger extends React.PureComponent<
+class AdhocMetricPopoverTrigger extends PureComponent<
   AdhocMetricPopoverTriggerProps,
   AdhocMetricPopoverTriggerState
 > {
@@ -63,8 +70,10 @@ class AdhocMetricPopoverTrigger extends React.PureComponent<
     this.getCurrentTab = this.getCurrentTab.bind(this);
     this.getCurrentLabel = this.getCurrentLabel.bind(this);
     this.onChange = this.onChange.bind(this);
+    this.handleDatasetModal = this.handleDatasetModal.bind(this);
 
     this.state = {
+      adhocMetric: props.adhocMetric,
       popoverVisible: false,
       title: {
         label: props.adhocMetric.label,
@@ -73,6 +82,27 @@ class AdhocMetricPopoverTrigger extends React.PureComponent<
       currentLabel: '',
       labelModified: false,
       isTitleEditDisabled: false,
+      showSaveDatasetModal: false,
+    };
+  }
+
+  static getDerivedStateFromProps(
+    nextProps: AdhocMetricPopoverTriggerProps,
+    prevState: AdhocMetricPopoverTriggerState,
+  ) {
+    if (prevState.adhocMetric.optionName !== nextProps.adhocMetric.optionName) {
+      return {
+        adhocMetric: nextProps.adhocMetric,
+        title: {
+          label: nextProps.adhocMetric.label,
+          hasCustomLabel: nextProps.adhocMetric.hasCustomLabel,
+        },
+        currentLabel: '',
+        labelModified: false,
+      };
+    }
+    return {
+      adhocMetric: nextProps.adhocMetric,
     };
   }
 
@@ -96,6 +126,10 @@ class AdhocMetricPopoverTrigger extends React.PureComponent<
 
   onPopoverResize() {
     this.forceUpdate();
+  }
+
+  handleDatasetModal(showModal: boolean) {
+    this.setState({ showSaveDatasetModal: showModal });
   }
 
   closePopover() {
@@ -149,7 +183,7 @@ class AdhocMetricPopoverTrigger extends React.PureComponent<
       savedMetric,
       columns,
       savedMetricsOptions,
-      datasourceType,
+      datasource,
       isControlledComponent,
     } = this.props;
     const { verbose_name, metric_name } = savedMetric;
@@ -180,16 +214,21 @@ class AdhocMetricPopoverTrigger extends React.PureComponent<
       <ExplorePopoverContent>
         <AdhocMetricEditPopover
           adhocMetric={adhocMetric}
-          title={title}
           columns={columns}
           savedMetricsOptions={savedMetricsOptions}
           savedMetric={savedMetric}
-          datasourceType={datasourceType}
+          datasource={datasource}
+          handleDatasetModal={this.handleDatasetModal}
           onResize={this.onPopoverResize}
           onClose={closePopover}
           onChange={this.onChange}
           getCurrentTab={this.getCurrentTab}
           getCurrentLabel={this.getCurrentLabel}
+          isNewMetric={this.props.isNew}
+          isLabelModified={
+            this.state.labelModified &&
+            adhocMetricLabel !== this.state.title.label
+          }
         />
       </ExplorePopoverContent>
     );
@@ -203,18 +242,32 @@ class AdhocMetricPopoverTrigger extends React.PureComponent<
     );
 
     return (
-      <Popover
-        placement="right"
-        trigger="click"
-        content={overlayContent}
-        defaultVisible={visible}
-        visible={visible}
-        onVisibleChange={togglePopover}
-        title={popoverTitle}
-        destroyTooltipOnHide={this.props.createNew}
-      >
-        {this.props.children}
-      </Popover>
+      <>
+        {this.state.showSaveDatasetModal && (
+          <SaveDatasetModal
+            visible={this.state.showSaveDatasetModal}
+            onHide={() => this.handleDatasetModal(false)}
+            buttonTextOnSave={t('Save')}
+            buttonTextOnOverwrite={t('Overwrite')}
+            modalDescription={t(
+              'Save this query as a virtual dataset to continue exploring',
+            )}
+            datasource={datasource}
+          />
+        )}
+        <ControlPopover
+          placement="right"
+          trigger="click"
+          content={overlayContent}
+          defaultVisible={visible}
+          visible={visible}
+          onVisibleChange={togglePopover}
+          title={popoverTitle}
+          destroyTooltipOnHide
+        >
+          {this.props.children}
+        </ControlPopover>
+      </>
     );
   }
 }

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
+import { PureComponent } from 'react';
 import PropTypes from 'prop-types';
 import { OptionControlLabel } from 'src/explore/components/controls/OptionControls';
 import { DndItemType } from 'src/explore/components/DndItemType';
@@ -32,21 +32,24 @@ const propTypes = {
   columns: PropTypes.arrayOf(columnType),
   savedMetricsOptions: PropTypes.arrayOf(savedMetricType),
   savedMetric: savedMetricType,
-  datasourceType: PropTypes.string,
+  datasource: PropTypes.object,
   onMoveLabel: PropTypes.func,
   onDropLabel: PropTypes.func,
   index: PropTypes.number,
+  type: PropTypes.string,
+  multi: PropTypes.bool,
+  datasourceWarningMessage: PropTypes.string,
 };
 
-class AdhocMetricOption extends React.PureComponent {
+class AdhocMetricOption extends PureComponent {
   constructor(props) {
     super(props);
     this.onRemoveMetric = this.onRemoveMetric.bind(this);
   }
 
   onRemoveMetric(e) {
-    e.stopPropagation();
-    this.props.onRemoveMetric();
+    e?.stopPropagation();
+    this.props.onRemoveMetric(this.props.index);
   }
 
   render() {
@@ -56,11 +59,15 @@ class AdhocMetricOption extends React.PureComponent {
       columns,
       savedMetricsOptions,
       savedMetric,
-      datasourceType,
+      datasource,
       onMoveLabel,
       onDropLabel,
       index,
+      type,
+      multi,
+      datasourceWarningMessage,
     } = this.props;
+    const withCaret = !savedMetric.error_text;
 
     return (
       <AdhocMetricPopoverTrigger
@@ -69,7 +76,7 @@ class AdhocMetricOption extends React.PureComponent {
         columns={columns}
         savedMetricsOptions={savedMetricsOptions}
         savedMetric={savedMetric}
-        datasourceType={datasourceType}
+        datasource={datasource}
       >
         <OptionControlLabel
           savedMetric={savedMetric}
@@ -79,9 +86,11 @@ class AdhocMetricOption extends React.PureComponent {
           onMoveLabel={onMoveLabel}
           onDropLabel={onDropLabel}
           index={index}
-          type={DndItemType.AdhocMetricOption}
-          withCaret
+          type={type ?? DndItemType.AdhocMetricOption}
+          withCaret={withCaret}
           isFunction
+          multi={multi}
+          datasourceWarningMessage={datasourceWarningMessage}
         />
       </AdhocMetricPopoverTrigger>
     );

@@ -16,12 +16,11 @@
 # under the License.
 from flask_babel import lazy_gettext as _
 
-from ...dashboards.filters import DashboardAccessFilter
-from ..base import check_ownership
+from superset import security_manager
+from superset.dashboards.filters import DashboardAccessFilter
 
 
 class DashboardMixin:  # pylint: disable=too-few-public-methods
-
     list_title = _("Dashboards")
     show_title = _("Show Dashboard")
     add_title = _("Add Dashboard")
@@ -39,7 +38,7 @@ class DashboardMixin:  # pylint: disable=too-few-public-methods
         "json_metadata",
         "published",
     ]
-    show_columns = edit_columns + ["table_names", "charts"]
+    show_columns = edit_columns + ["charts"]
     search_columns = ("dashboard_title", "slug", "owners", "published")
     add_columns = edit_columns
     base_order = ("changed_on", "desc")
@@ -66,7 +65,7 @@ class DashboardMixin:  # pylint: disable=too-few-public-methods
         "roles": _(
             "Roles is a list which defines access to the dashboard. "
             "Granting a role access to a dashboard will bypass dataset level checks."
-            "If no roles defined then the dashboard is available to all roles."
+            "If no roles are defined, regular access permissions apply."
         ),
         "published": _(
             "Determines whether or not this dashboard is "
@@ -87,8 +86,7 @@ class DashboardMixin:  # pylint: disable=too-few-public-methods
         "position_json": _("Position JSON"),
         "css": _("CSS"),
         "json_metadata": _("JSON Metadata"),
-        "table_names": _("Underlying Tables"),
     }
 
-    def pre_delete(self, item: "DashboardMixin") -> None:  # pylint: disable=no-self-use
-        check_ownership(item)
+    def pre_delete(self, item: "DashboardMixin") -> None:
+        security_manager.raise_for_ownership(item)

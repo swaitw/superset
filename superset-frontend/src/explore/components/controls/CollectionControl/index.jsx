@@ -16,10 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
+import { Component } from 'react';
 import PropTypes from 'prop-types';
-import { List } from 'src/common/components';
-import shortid from 'shortid';
+import { List } from 'src/components/List';
+import { nanoid } from 'nanoid';
 import { t, withTheme } from '@superset-ui/core';
 import {
   SortableContainer,
@@ -57,7 +57,7 @@ const defaultProps = {
   description: null,
   onChange: () => {},
   placeholder: t('Empty collection'),
-  itemGenerator: () => ({ key: shortid.generate() }),
+  itemGenerator: () => ({ key: nanoid(11) }),
   keyAccessor: o => o.key,
   value: [],
   addTooltip: t('Add an item'),
@@ -73,15 +73,16 @@ const SortableDragger = SortableHandle(() => (
   />
 ));
 
-class CollectionControl extends React.Component {
+class CollectionControl extends Component {
   constructor(props) {
     super(props);
     this.onAdd = this.onAdd.bind(this);
   }
 
   onChange(i, value) {
-    Object.assign(this.props.value[i], value);
-    this.props.onChange(this.props.value);
+    const newValue = [...this.props.value];
+    newValue[i] = { ...this.props.value[i], ...value };
+    this.props.onChange(newValue);
   }
 
   onAdd() {
@@ -117,7 +118,11 @@ class CollectionControl extends React.Component {
           return (
             <SortableListItem
               className="clearfix"
-              css={{ justifyContent: 'flex-start' }}
+              css={theme => ({
+                justifyContent: 'flex-start',
+                display: '-webkit-flex',
+                paddingInline: theme.gridUnit * 3,
+              })}
               key={this.props.keyAccessor(o)}
               index={i}
             >

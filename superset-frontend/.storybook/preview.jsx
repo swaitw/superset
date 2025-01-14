@@ -16,16 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
-import { addDecorator } from '@storybook/react';
-import { jsxDecorator } from 'storybook-addon-jsx';
-import { addParameters } from '@storybook/react';
-import { withPaddings } from 'storybook-addon-paddings';
+import { withJsx } from '@mihkeleidast/storybook-addon-source';
 import { supersetTheme, ThemeProvider } from '@superset-ui/core';
+import { AntdThemeProvider } from '../src/components/AntdThemeProvider';
 import { combineReducers, createStore, applyMiddleware, compose } from 'redux';
 import thunk from 'redux-thunk';
 import { Provider } from 'react-redux';
 import reducerIndex from 'spec/helpers/reducerIndex';
+import { GlobalStyles } from '../src/GlobalStyles';
 
 import 'src/theme.ts';
 import './storybook.css';
@@ -37,7 +35,12 @@ const store = createStore(
 );
 
 const themeDecorator = Story => (
-  <ThemeProvider theme={supersetTheme}>{<Story />}</ThemeProvider>
+  <ThemeProvider theme={supersetTheme}>
+    <AntdThemeProvider>
+      <GlobalStyles />
+      <Story />
+    </AntdThemeProvider>
+  </ThemeProvider>
 );
 
 const providerDecorator = Story => (
@@ -46,21 +49,37 @@ const providerDecorator = Story => (
   </Provider>
 );
 
-addDecorator(jsxDecorator);
-addDecorator(themeDecorator);
-addDecorator(providerDecorator);
-addDecorator(withPaddings);
+export const decorators = [withJsx, themeDecorator, providerDecorator];
 
-addParameters({
-  paddings: [
-    { name: 'None', value: '0px' },
-    { name: 'Small', value: '16px' },
-    { name: 'Medium', value: '32px', default: true },
-    { name: 'Large', value: '64px' },
-  ],
+export const parameters = {
+  paddings: {
+    values: [
+      { name: 'None', value: '0px' },
+      { name: 'Small', value: '16px' },
+      { name: 'Medium', value: '32px' },
+      { name: 'Large', value: '64px' },
+    ],
+    default: 'Medium',
+  },
   options: {
     storySort: {
-      method: 'alphabetical',
+      order: [
+        'Superset Frontend',
+        ['Controls', 'Display', 'Feedback', 'Input', '*'],
+        ['Overview', 'Examples', '*'],
+        'Design System',
+        [
+          'Introduction',
+          'Foundations',
+          'Components',
+          ['Overview', 'Examples', '*'],
+          'Patterns',
+          '*',
+        ],
+        ['Overview', 'Examples', '*'],
+        '*',
+      ],
     },
   },
-});
+  controls: { expanded: true, sort: 'alpha' },
+};

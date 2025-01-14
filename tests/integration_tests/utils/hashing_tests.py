@@ -14,12 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=no-self-use
 import datetime
 import math
 from typing import Any
 
-import pytest
+import pytest  # noqa: F401
 
 from superset.utils.hashing import md5_sha_from_dict, md5_sha_from_str
 
@@ -67,7 +66,7 @@ def test_custom_default_md5_sha():
         "datetime": datetime.datetime.now(),
     }
 
-    serialized_obj = '{"company": "Gobias Industries", "datetime": "<datetime>", "product": "Coffee"}'
+    serialized_obj = '{"company": "Gobias Industries", "datetime": "<datetime>", "product": "Coffee"}'  # noqa: E501
 
     assert md5_sha_from_str(serialized_obj) == md5_sha_from_dict(
         obj, default=custom_datetime_serializer

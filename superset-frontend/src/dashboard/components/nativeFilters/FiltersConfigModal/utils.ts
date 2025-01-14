@@ -16,34 +16,44 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { FormInstance } from 'antd/lib/form';
-import shortid from 'shortid';
+import { FormInstance } from 'src/components';
+import { nanoid } from 'nanoid';
 import { getInitialDataMask } from 'src/dataMask/reducer';
-import { FilterRemoval, NativeFiltersForm } from './types';
-import { Filter, FilterConfiguration, Target } from '../types';
+import {
+  FilterConfiguration,
+  NativeFilterType,
+  NativeFilterTarget,
+  logging,
+  Filter,
+  Divider,
+} from '@superset-ui/core';
+import { DASHBOARD_ROOT_ID } from 'src/dashboard/util/constants';
+import { FilterChangesType, FilterRemoval, NativeFiltersForm } from './types';
 
 export const REMOVAL_DELAY_SECS = 5;
+
+export const hasCircularDependency = (
+  dependencyMap: Map<string, string[]>,
+  filterId: string,
+  trace: string[] = [],
+): boolean => {
+  if (trace.includes(filterId)) {
+    return true;
+  }
+  const dependencies = dependencyMap.get(filterId);
+  if (dependencies) {
+    return dependencies.some(dependency =>
+      hasCircularDependency(dependencyMap, dependency, [...trace, filterId]),
+    );
+  }
+  return false;
+};
 
 export const validateForm = async (
   form: FormInstance<NativeFiltersForm>,
   currentFilterId: string,
-  filterConfigMap: Record<string, Filter>,
-  filterIds: string[],
-  removedFilters: Record<string, FilterRemoval>,
   setCurrentFilterId: Function,
 ) => {
-  const addValidationError = (
-    filterId: string,
-    field: string,
-    error: string,
-  ) => {
-    const fieldError = {
-      name: ['filters', filterId, field],
-      errors: [error],
-    };
-    form.setFields([fieldError]);
-  };
-
   try {
     let formValues: NativeFiltersForm;
     try {
@@ -56,32 +66,11 @@ export const validateForm = async (
         throw error;
       }
     }
-
-    const validateCycles = (filterId: string, trace: string[] = []) => {
-      if (trace.includes(filterId)) {
-        addValidationError(
-          filterId,
-          'parentFilter',
-          'Cannot create cyclic hierarchy',
-        );
-      }
-      const parentId = formValues.filters[filterId]
-        ? formValues.filters[filterId].parentFilter?.value
-        : filterConfigMap[filterId]?.cascadeParentIds?.[0];
-      if (parentId) {
-        validateCycles(parentId, [...trace, filterId]);
-      }
-    };
-
-    filterIds
-      .filter(id => !removedFilters[id])
-      .forEach(filterId => validateCycles(filterId));
-
     return formValues;
   } catch (error) {
-    console.warn('Filter configuration failed:', error);
+    logging.warn('Filter configuration failed:', error);
 
-    if (!error.errorFields || !error.errorFields.length) return null; // not a validation error
+    if (!error.errorFields?.length) return null; // not a validation error
 
     // the name is in array format since the fields are nested
     type ErrorFields = { name: ['filters', string, string] }[];
@@ -93,34 +82,48 @@ export const validateForm = async (
         field => field.name[0] === 'filters',
       );
       if (filterError) {
-        setCurrentFilterId(filterError.name[1]);
+        const filterId = filterError.name[1];
+        setCurrentFilterId(filterId);
       }
     }
     return null;
   }
 };
 
-export const createHandleSave = (
-  filterConfigMap: Record<string, Filter>,
-  filterIds: string[],
-  removedFilters: Record<string, FilterRemoval>,
-  saveForm: Function,
-  values: NativeFiltersForm,
-) => async () => {
-  const newFilterConfig: FilterConfiguration = filterIds
-    .filter(id => !removedFilters[id])
-    .map(id => {
-      // create a filter config object from the form inputs
-      const formInputs = values.filters[id];
-      // if user didn't open a filter, return the original config
-      if (!formInputs) return filterConfigMap[id];
-      const target: Partial<Target> = {};
+export const createHandleSave =
+  (
+    saveForm: Function,
+    filterChanges: FilterChangesType,
+    values: NativeFiltersForm,
+    filterConfigMap: Record<string, Filter | Divider>,
+  ) =>
+  async () => {
+    const transformFilter = (id: string) => {
+      const formInputs = values.filters?.[id] || filterConfigMap[id];
+      if (!formInputs) {
+        return undefined;
+      }
+      if (formInputs.type === NativeFilterType.Divider) {
+        return {
+          id,
+          type: NativeFilterType.Divider,
+          scope: {
+            rootPath: [DASHBOARD_ROOT_ID],
+            excluded: [],
+          },
+          title: formInputs.title,
+          description: formInputs.description,
+        };
+      }
+
+      const target: Partial<NativeFilterTarget> = {};
       if (formInputs.dataset) {
         target.datasetId = formInputs.dataset.value;
       }
       if (formInputs.dataset && formInputs.column) {
         target.column = { name: formInputs.column };
       }
+
       return {
         id,
         adhoc_filters: formInputs.adhoc_filters,
@@ -132,61 +135,80 @@ export const createHandleSave = (
         ),
         name: formInputs.name,
         filterType: formInputs.filterType,
-        // for now there will only ever be one target
         targets: [target],
         defaultDataMask: formInputs.defaultDataMask ?? getInitialDataMask(),
-        cascadeParentIds: formInputs.parentFilter
-          ? [formInputs.parentFilter.value]
-          : [],
+        cascadeParentIds: formInputs.dependencies || [],
         scope: formInputs.scope,
         sortMetric: formInputs.sortMetric,
+        type: formInputs.type,
+        description: (formInputs.description || '').trim(),
       };
-    });
+      return undefined;
+    };
 
-  await saveForm(newFilterConfig);
-};
+    const transformedModified = filterChanges.modified
+      .map(transformFilter)
+      .filter(Boolean);
 
-export const createHandleTabEdit = (
-  setRemovedFilters: (
-    value:
-      | ((
-          prevState: Record<string, FilterRemoval>,
-        ) => Record<string, FilterRemoval>)
-      | Record<string, FilterRemoval>,
-  ) => void,
-  setSaveAlertVisible: Function,
-  addFilter: Function,
-) => (filterId: string, action: 'add' | 'remove') => {
-  const completeFilterRemoval = (filterId: string) => {
-    // the filter state will actually stick around in the form,
-    // and the filterConfig/newFilterIds, but we use removedFilters
-    // to mark it as removed.
-    setRemovedFilters(removedFilters => ({
-      ...removedFilters,
-      [filterId]: { isPending: false },
-    }));
+    const newFilterChanges = {
+      ...filterChanges,
+      modified: transformedModified,
+    };
+    await saveForm(newFilterChanges);
   };
 
-  if (action === 'remove') {
+export const createHandleRemoveItem =
+  (
+    setRemovedFilters: (
+      value:
+        | ((
+            prevState: Record<string, FilterRemoval>,
+          ) => Record<string, FilterRemoval>)
+        | Record<string, FilterRemoval>,
+    ) => void,
+    setOrderedFilters: (
+      val: string[] | ((prevState: string[]) => string[]),
+    ) => void,
+    setSaveAlertVisible: Function,
+    removeFilter: (filterId: string) => void,
+  ) =>
+  (filterId: string) => {
+    const completeFilterRemoval = (filterId: string) => {
+      // the filter state will actually stick around in the form,
+      // and the filterConfig/newFilterIds, but we use removedFilters
+      // to mark it as removed.
+      setRemovedFilters(removedFilters => ({
+        ...removedFilters,
+        [filterId]: { isPending: false },
+      }));
+      setOrderedFilters((orderedFilters: string[]) =>
+        orderedFilters.filter(filter => filter !== filterId),
+      );
+    };
+
     // first set up the timer to completely remove it
-    const timerId = window.setTimeout(
-      () => completeFilterRemoval(filterId),
-      REMOVAL_DELAY_SECS * 1000,
-    );
+    const timerId = window.setTimeout(() => {
+      completeFilterRemoval(filterId);
+    }, REMOVAL_DELAY_SECS * 1000);
     // mark the filter state as "removal in progress"
     setRemovedFilters(removedFilters => ({
       ...removedFilters,
       [filterId]: { isPending: true, timerId },
     }));
+    removeFilter(filterId);
+    // eslint-disable-next-line no-param-reassign
     setSaveAlertVisible(false);
-  } else if (action === 'add') {
-    addFilter();
-  }
-};
+  };
 
 export const NATIVE_FILTER_PREFIX = 'NATIVE_FILTER-';
-export const generateFilterId = () =>
-  `${NATIVE_FILTER_PREFIX}${shortid.generate()}`;
+export const NATIVE_FILTER_DIVIDER_PREFIX = 'NATIVE_FILTER_DIVIDER-';
+export const generateFilterId = (type: NativeFilterType): string => {
+  const prefix =
+    type === NativeFilterType.NativeFilter
+      ? NATIVE_FILTER_PREFIX
+      : NATIVE_FILTER_DIVIDER_PREFIX;
+  return `${prefix}${nanoid()}`;
+};
 
 export const getFilterIds = (config: FilterConfiguration) =>
   config.map(filter => filter.id);

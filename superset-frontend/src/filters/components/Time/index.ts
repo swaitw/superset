@@ -26,8 +26,9 @@ export default class TimeFilterPlugin extends ChartPlugin {
     const metadata = new ChartMetadata({
       name: t('Time filter'),
       description: t('Custom time filter plugin'),
-      behaviors: [Behavior.INTERACTIVE_CHART, Behavior.NATIVE_FILTER],
+      behaviors: [Behavior.InteractiveChart, Behavior.NativeFilter],
       thumbnail,
+      tags: [t('Experimental')],
       datasourceCount: 0,
     });
 

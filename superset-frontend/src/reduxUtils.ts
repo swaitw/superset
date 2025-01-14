@@ -16,10 +16,18 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import shortid from 'shortid';
+import { nanoid } from 'nanoid';
 import { compose } from 'redux';
 import persistState, { StorageAdapter } from 'redux-localstorage';
-import { isEqual, omitBy, isUndefined } from 'lodash';
+import {
+  isEqual,
+  omitBy,
+  omit,
+  isUndefined,
+  isNull,
+  isEqualWith,
+} from 'lodash';
+import { ensureIsArray } from '@superset-ui/core';
 
 export function addToObject(
   state: Record<string, any>,
@@ -30,7 +38,7 @@ export function addToObject(
   const copiedObject = { ...obj };
 
   if (!copiedObject.id) {
-    copiedObject.id = shortid.generate();
+    copiedObject.id = nanoid();
   }
   newObject[copiedObject.id] = copiedObject;
   return { ...state, [arrKey]: newObject };
@@ -100,7 +108,7 @@ export function addToArr(
 ) {
   const newObj = { ...obj };
   if (!newObj.id) {
-    newObj.id = shortid.generate();
+    newObj.id = nanoid();
   }
   const newState = {};
   if (prepend) {
@@ -121,7 +129,7 @@ export function extendArr(
   newArr.forEach(el => {
     if (!el.id) {
       /* eslint-disable no-param-reassign */
-      el.id = shortid.generate();
+      el.id = nanoid();
     }
   });
   const newState = {};
@@ -136,12 +144,18 @@ export function extendArr(
 export function initEnhancer(
   persist = true,
   persistConfig: { paths?: StorageAdapter<unknown>; config?: string } = {},
+  disableDebugger = false,
 ) {
   const { paths, config } = persistConfig;
   const composeEnhancers =
-    process.env.WEBPACK_MODE === 'development'
+    process.env.WEBPACK_MODE === 'development' && disableDebugger !== true
       ? /* eslint-disable-next-line no-underscore-dangle, dot-notation */
-        window['__REDUX_DEVTOOLS_EXTENSION_COMPOSE__'] || compose
+        window['__REDUX_DEVTOOLS_EXTENSION_COMPOSE__']
+        ? /* eslint-disable-next-line no-underscore-dangle, dot-notation */
+          window['__REDUX_DEVTOOLS_EXTENSION_COMPOSE__']({
+            trace: true,
+          })
+        : compose
       : compose;
 
   return persist
@@ -172,13 +186,30 @@ export function areArraysShallowEqual(arr1: unknown[], arr2: unknown[]) {
 export function areObjectsEqual(
   obj1: any,
   obj2: any,
-  opts = { ignoreUndefined: false },
+  opts: {
+    ignoreUndefined?: boolean;
+    ignoreNull?: boolean;
+    ignoreFields?: string[];
+  } = { ignoreUndefined: false, ignoreNull: false, ignoreFields: [] },
 ) {
   let comp1 = obj1;
   let comp2 = obj2;
   if (opts.ignoreUndefined) {
-    comp1 = omitBy(obj1, isUndefined);
-    comp2 = omitBy(obj2, isUndefined);
+    comp1 = omitBy(comp1, isUndefined);
+    comp2 = omitBy(comp2, isUndefined);
+  }
+  if (opts.ignoreNull) {
+    comp1 = omitBy(comp1, isNull);
+    comp2 = omitBy(comp2, isNull);
+  }
+  if (opts.ignoreFields?.length) {
+    const ignoreFields = ensureIsArray(opts.ignoreFields);
+    return isEqualWith(comp1, comp2, (val1, val2) =>
+      isEqual(
+        ensureIsArray(val1).map(value => omit(value, ignoreFields)),
+        ensureIsArray(val2).map(value => omit(value, ignoreFields)),
+      ),
+    );
   }
   return isEqual(comp1, comp2);
 }

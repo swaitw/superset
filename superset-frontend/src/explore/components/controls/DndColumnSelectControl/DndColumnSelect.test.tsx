@@ -16,25 +16,100 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
-import { render, screen } from 'spec/helpers/testing-library';
-import { LabelProps } from 'src/explore/components/controls/DndColumnSelectControl/types';
-import { DndColumnSelect } from 'src/explore/components/controls/DndColumnSelectControl/DndColumnSelect';
+import userEvent from '@testing-library/user-event';
+import { render, screen, within } from 'spec/helpers/testing-library';
+import {
+  DndColumnSelect,
+  DndColumnSelectProps,
+} from 'src/explore/components/controls/DndColumnSelectControl/DndColumnSelect';
 
-const defaultProps: LabelProps = {
+const defaultProps: DndColumnSelectProps = {
+  type: 'DndColumnSelect',
   name: 'Filter',
   onChange: jest.fn(),
-  options: { string: { column_name: 'Column A' } },
+  options: [{ column_name: 'Column A' }],
+  actions: { setControlValue: jest.fn() },
 };
 
-test('renders with default props', () => {
-  render(<DndColumnSelect {...defaultProps} />, { useDnd: true });
-  expect(screen.getByText('Drop columns')).toBeInTheDocument();
+test('renders with default props', async () => {
+  render(<DndColumnSelect {...defaultProps} />, {
+    useDnd: true,
+    useRedux: true,
+  });
+  expect(
+    await screen.findByText('Drop columns here or click'),
+  ).toBeInTheDocument();
 });
 
-test('renders with value', () => {
-  render(<DndColumnSelect {...defaultProps} value="string" />, {
+test('renders with value', async () => {
+  render(<DndColumnSelect {...defaultProps} value="Column A" />, {
     useDnd: true,
+    useRedux: true,
   });
-  expect(screen.getByText('Column A')).toBeInTheDocument();
+  expect(await screen.findByText('Column A')).toBeInTheDocument();
+});
+
+test('renders adhoc column', async () => {
+  render(
+    <DndColumnSelect
+      {...defaultProps}
+      value={{
+        sqlExpression: 'Count *',
+        label: 'adhoc column',
+        expressionType: 'SQL',
+      }}
+    />,
+    { useDnd: true, useRedux: true },
+  );
+  expect(await screen.findByText('adhoc column')).toBeVisible();
+  expect(screen.getByLabelText('calculator')).toBeVisible();
+});
+
+test('warn selected custom metric when metric gets removed from dataset', async () => {
+  const columnValues = ['column1', 'column2'];
+
+  const { rerender, container } = render(
+    <DndColumnSelect
+      {...defaultProps}
+      options={[
+        {
+          column_name: 'column1',
+        },
+        {
+          column_name: 'column2',
+        },
+      ]}
+      value={columnValues}
+    />,
+    {
+      useDnd: true,
+      useRedux: true,
+    },
+  );
+
+  rerender(
+    <DndColumnSelect
+      {...defaultProps}
+      options={[
+        {
+          column_name: 'column3',
+        },
+        {
+          column_name: 'column2',
+        },
+      ]}
+      value={columnValues}
+    />,
+  );
+  expect(screen.getByText('column2')).toBeVisible();
+  expect(screen.queryByText('column1')).toBeInTheDocument();
+  const warningIcon = within(
+    screen.getByText('column1').parentElement ?? container,
+  ).getByRole('button');
+  expect(warningIcon).toBeInTheDocument();
+  userEvent.hover(warningIcon);
+  const warningTooltip = await screen.findByText(
+    'This column might be incompatible with current dataset',
+  );
+  expect(warningTooltip).toBeInTheDocument();
 });

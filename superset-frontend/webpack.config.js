@@ -21,18 +21,20 @@ const fs = require('fs');
 const path = require('path');
 const webpack = require('webpack');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
-const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
-const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
+const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const SpeedMeasurePlugin = require('speed-measure-webpack-plugin');
-const TerserPlugin = require('terser-webpack-plugin');
-const ManifestPlugin = require('webpack-manifest-plugin');
+const {
+  WebpackManifestPlugin,
+  getCompilerHooks,
+} = require('webpack-manifest-plugin');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const parsedArgs = require('yargs').argv;
+const Visualizer = require('webpack-visualizer-plugin2');
 const getProxyConfig = require('./webpack.proxy-config');
-const packageConfig = require('./package.json');
+const packageConfig = require('./package');
 
 // input dir
 const APP_DIR = path.resolve(__dirname, './');
@@ -44,8 +46,6 @@ const {
   mode = 'development',
   devserverPort = 9000,
   measure = false,
-  analyzeBundle = false,
-  analyzerPort = 8888,
   nameChunks = false,
 } = parsedArgs;
 const isDevMode = mode !== 'production';
@@ -57,8 +57,8 @@ const output = {
   publicPath: `${ASSET_BASE_URL}/static/assets/`,
 };
 if (isDevMode) {
-  output.filename = '[name].[hash:8].entry.js';
-  output.chunkFilename = '[name].[hash:8].chunk.js';
+  output.filename = '[name].[contenthash:8].entry.js';
+  output.chunkFilename = '[name].[contenthash:8].chunk.js';
 } else if (nameChunks) {
   output.filename = '[name].[chunkhash].entry.js';
   output.chunkFilename = '[name].[chunkhash].chunk.js';
@@ -67,9 +67,18 @@ if (isDevMode) {
   output.chunkFilename = '[chunkhash].chunk.js';
 }
 
+if (!isDevMode) {
+  output.clean = true;
+}
+
 const plugins = [
+  new webpack.ProvidePlugin({
+    process: 'process/browser.js',
+    ...(isDevMode ? { Buffer: ['buffer', 'Buffer'] } : {}), // Fix legacy-plugin-chart-paired-t-test broken Story
+  }),
+
   // creates a manifest.json mapping of name to hashed output used in template files
-  new ManifestPlugin({
+  new WebpackManifestPlugin({
     publicPath: output.publicPath,
     seed: { app: 'superset' },
     // This enables us to include all relevant files for an entry
@@ -86,19 +95,18 @@ const plugins = [
         entryFiles[entry] = {
           css: chunks
             .filter(x => x.endsWith('.css'))
-            .map(x => path.join(output.publicPath, x)),
+            .map(x => `${output.publicPath}${x}`),
           js: chunks
-            .filter(x => x.endsWith('.js'))
-            .map(x => path.join(output.publicPath, x)),
+            .filter(x => x.endsWith('.js') && x.match(/(?<!hot-update).js$/))
+            .map(x => `${output.publicPath}${x}`),
         };
       });
-
       return {
         ...seed,
         entrypoints: entryFiles,
       };
     },
-    // Also write maniafest.json to disk when running `npm run dev`.
+    // Also write manifest.json to disk when running `npm run dev`.
     // This is required for Flask to work.
     writeToFileEmit: isDevMode && !isDevServer,
   }),
@@ -106,20 +114,16 @@ const plugins = [
   // expose mode variable to other modules
   new webpack.DefinePlugin({
     'process.env.WEBPACK_MODE': JSON.stringify(mode),
-  }),
-
-  // runs type checking on a separate process to speed up the build
-  new ForkTsCheckerWebpackPlugin({
-    eslint: true,
-    checkSyntacticErrors: true,
-    memoryLimit: 4096,
+    'process.env.REDUX_DEFAULT_MIDDLEWARE':
+      process.env.REDUX_DEFAULT_MIDDLEWARE,
+    'process.env.SCARF_ANALYTICS': JSON.stringify(process.env.SCARF_ANALYTICS),
   }),
 
   new CopyPlugin({
     patterns: [
       'package.json',
-      { from: 'images', to: 'images' },
-      { from: 'stylesheets', to: 'stylesheets' },
+      { from: 'src/assets/images', to: 'images' },
+      { from: 'src/assets/stylesheets', to: 'stylesheets' },
     ],
   }),
 
@@ -142,17 +146,6 @@ if (!process.env.CI) {
   plugins.push(new webpack.ProgressPlugin());
 }
 
-// clean up built assets if not from dev-server
-if (!isDevServer) {
-  plugins.push(
-    new CleanWebpackPlugin({
-      dry: false,
-      // required because the build directory is outside the frontend directory:
-      dangerouslyAllowCleanPatternsOutsideProject: true,
-    }),
-  );
-}
-
 if (!isDevMode) {
   // text loading (webpack 4+)
   plugins.push(
@@ -161,7 +154,9 @@ if (!isDevMode) {
       chunkFilename: '[name].[chunkhash].chunk.css',
     }),
   );
-  plugins.push(new OptimizeCSSAssetsPlugin());
+
+  // Runs type checking on a separate process to speed up the build
+  plugins.push(new ForkTsCheckerWebpackPlugin());
 }
 
 const PREAMBLE = [path.join(APP_DIR, '/src/preamble.ts')];
@@ -186,10 +181,18 @@ const babelLoader = {
     // disable gzip compression for cache files
     // faster when there are millions of small files
     cacheCompression: false,
-    plugins: ['emotion'],
     presets: [
       [
-        '@emotion/babel-preset-css-prop',
+        '@babel/preset-react',
+        {
+          runtime: 'automatic',
+          importSource: '@emotion/react',
+        },
+      ],
+    ],
+    plugins: [
+      [
+        '@emotion/babel-plugin',
         {
           autoLabel: 'dev-only',
           labelFormat: '[local]',
@@ -200,22 +203,35 @@ const babelLoader = {
 };
 
 const config = {
-  node: {
-    fs: 'empty',
-  },
   entry: {
     preamble: PREAMBLE,
     theme: path.join(APP_DIR, '/src/theme.ts'),
     menu: addPreamble('src/views/menu.tsx'),
     spa: addPreamble('/src/views/index.tsx'),
-    addSlice: addPreamble('/src/addSlice/index.tsx'),
-    explore: addPreamble('/src/explore/index.jsx'),
-    sqllab: addPreamble('/src/SqlLab/index.tsx'),
-    profile: addPreamble('/src/profile/index.tsx'),
-    showSavedQuery: [path.join(APP_DIR, '/src/showSavedQuery/index.jsx')],
+    embedded: addPreamble('/src/embedded/index.tsx'),
+  },
+  cache: {
+    type: 'filesystem', // Enable filesystem caching
+    cacheDirectory: path.resolve(__dirname, '.temp_cache'),
+    buildDependencies: {
+      config: [__filename],
+    },
   },
   output,
   stats: 'minimal',
+  /*
+   Silence warning for missing export in @data-ui's internal structure. This
+   issue arises from an internal implementation detail of @data-ui. As it's
+   non-critical, we suppress it to prevent unnecessary clutter in the build
+   output. For more context, refer to:
+   https://github.com/williaster/data-ui/issues/208#issuecomment-946966712
+   */
+  ignoreWarnings: [
+    {
+      message:
+        /export 'withTooltipPropTypes' \(imported as 'vxTooltipPropTypes'\) was not found/,
+    },
+  ],
   performance: {
     assetFilter(assetFilename) {
       // don't throw size limit warning on geojson and font files
@@ -248,9 +264,7 @@ const config = {
               'redux',
               'react-redux',
               'react-hot-loader',
-              'react-select',
               'react-sortable-hoc',
-              'react-virtualized',
               'react-table',
               'react-ace',
               '@hot-loader.*',
@@ -269,13 +283,6 @@ const config = {
             ].join('|')})/`,
           ),
         },
-        // bundle large libraries separately
-        mathjs: {
-          name: 'mathjs',
-          test: /\/node_modules\/mathjs\//,
-          priority: 30,
-          enforce: true,
-        },
         // viz thumbnails are used in `addSlice` and `explore` page
         thumbnail: {
           name: 'thumbnail',
@@ -285,34 +292,52 @@ const config = {
         },
       },
     },
+    usedExports: 'global',
+    minimizer: [new CssMinimizerPlugin(), '...'],
   },
   resolve: {
-    modules: [APP_DIR, 'node_modules', ROOT_DIR],
+    // resolve modules from `/superset_frontend/node_modules` and `/superset_frontend`
+    modules: ['node_modules', APP_DIR],
     alias: {
-      'react-dom': '@hot-loader/react-dom',
-      // Force using absolute import path of some packages in the root node_modules,
-      // as they can be dependencies of other packages via `npm link`.
-      '@superset-ui/core': path.resolve(
-        APP_DIR,
-        './node_modules/@superset-ui/core',
-      ),
-      '@superset-ui/chart-controls': path.resolve(
-        APP_DIR,
-        './node_modules/@superset-ui/chart-controls',
+      // TODO: remove aliases once React has been upgraded to v17 and
+      //  AntD version conflict has been resolved
+      antd: path.resolve(path.join(APP_DIR, './node_modules/antd')),
+      react: path.resolve(path.join(APP_DIR, './node_modules/react')),
+      // TODO: remove Handlebars alias once Handlebars NPM package has been updated to
+      // correctly support webpack import (https://github.com/handlebars-lang/handlebars.js/issues/953)
+      handlebars: 'handlebars/dist/handlebars.js',
+      /*
+      Temporary workaround to prevent Webpack from resolving moment locale
+      files, which are unnecessary for this project and causing build warnings.
+      This prevents "Module not found" errors for moment locale files.
+      */
+      'moment/min/moment-with-locales': false,
+      // Temporary workaround to allow Storybook 8 to work with existing React v16-compatible stories.
+      // Remove below alias once React has been upgreade to v18.
+      '@storybook/react-dom-shim': path.resolve(
+        path.join(
+          APP_DIR,
+          './node_modules/@storybook/react-dom-shim/dist/react-16',
+        ),
       ),
     },
     extensions: ['.ts', '.tsx', '.js', '.jsx', '.yml'],
-    symlinks: false,
+    fallback: {
+      fs: false,
+      vm: require.resolve('vm-browserify'),
+      path: false,
+      ...(isDevMode ? { buffer: require.resolve('buffer/') } : {}), // Fix legacy-plugin-chart-paired-t-test broken Story
+    },
   },
   context: APP_DIR, // to automatically find tsconfig.json
   module: {
-    // Uglifying mapbox-gl results in undefined errors, see
-    // https://github.com/mapbox/mapbox-gl-js/issues/4359#issuecomment-288001933
-    noParse: /(mapbox-gl)\.js$/,
     rules: [
       {
         test: /datatables\.net.*/,
-        loader: 'imports-loader?define=>false',
+        loader: 'imports-loader',
+        options: {
+          additionalCode: 'var define = false;',
+        },
       },
       {
         test: /\.tsx?$/,
@@ -329,7 +354,7 @@ const config = {
               transpileOnly: true,
               // must override compiler options here, even though we have set
               // the same options in `tsconfig.json`, because they may still
-              // be overriden by `tsconfig.json` in node_modules subdirectories.
+              // be overridden by `tsconfig.json` in node_modules subdirectories.
               compilerOptions: {
                 esModuleInterop: false,
                 importHelpers: false,
@@ -345,11 +370,25 @@ const config = {
         // include source code for plugins, but exclude node_modules and test files within them
         exclude: [/superset-ui.*\/node_modules\//, /\.test.jsx?$/],
         include: [
-          new RegExp(`${APP_DIR}/src`),
-          /superset-ui.*\/src/,
-          new RegExp(`${APP_DIR}/.storybook`),
+          new RegExp(`${APP_DIR}/(src|.storybook|plugins|packages)`),
+          ...['./src', './.storybook', './plugins', './packages'].map(p =>
+            path.resolve(__dirname, p),
+          ), // redundant but required for windows
+          /@encodable/,
         ],
         use: [babelLoader],
+      },
+      {
+        test: /ace-builds.*\/worker-.*$/,
+        type: 'asset/resource',
+      },
+      // react-hot-loader use "ProxyFacade", which is a wrapper for react Component
+      // see https://github.com/gaearon/react-hot-loader/issues/1311
+      // TODO: refactor recurseReactClone
+      {
+        test: /\.js$/,
+        include: /node_modules\/react-dom/,
+        use: ['react-hot-loader/webpack'],
       },
       {
         test: /\.css$/,
@@ -359,7 +398,7 @@ const config = {
           {
             loader: 'css-loader',
             options: {
-              sourceMap: isDevMode,
+              sourceMap: true,
             },
           },
         ],
@@ -372,14 +411,19 @@ const config = {
           {
             loader: 'css-loader',
             options: {
-              sourceMap: isDevMode,
+              sourceMap: true,
             },
           },
           {
             loader: 'less-loader',
             options: {
-              sourceMap: isDevMode,
-              javascriptEnabled: true,
+              sourceMap: true,
+              lessOptions: {
+                javascriptEnabled: true,
+                modifyVars: {
+                  'root-entry-name': 'default',
+                },
+              },
             },
           },
         ],
@@ -388,58 +432,69 @@ const config = {
       {
         test: /\.png$/,
         issuer: {
-          exclude: /\/src\/assets\/staticPages\//,
+          not: [/\/src\/assets\/staticPages\//],
         },
-        loader: 'url-loader',
-        options: {
-          limit: 10000,
-          name: '[name].[hash:8].[ext]',
+        type: 'asset',
+        generator: {
+          filename: '[name].[contenthash:8][ext]',
         },
       },
       {
         test: /\.png$/,
-        issuer: {
-          test: /\/src\/assets\/staticPages\//,
-        },
-        loader: 'url-loader',
-        options: {
-          limit: 150000, // Convert images < 150kb to base64 strings
-        },
+        issuer: /\/src\/assets\/staticPages\//,
+        type: 'asset',
       },
       {
         test: /\.svg(\?v=\d+\.\d+\.\d+)?$/,
-        issuer: {
-          test: /\.(j|t)sx?$/,
-        },
-        use: ['@svgr/webpack'],
+        issuer: /\.([jt])sx?$/,
+        use: [
+          {
+            loader: '@svgr/webpack',
+            options: {
+              titleProp: true,
+              ref: true,
+              // this is the default value for the icon. Using other values
+              // here will replace width and height in svg with 1em
+              icon: false,
+            },
+          },
+        ],
       },
       {
         test: /\.(jpg|gif)$/,
-        loader: 'file-loader',
-        options: {
-          name: '[name].[hash:8].[ext]',
+        type: 'asset/resource',
+        generator: {
+          filename: '[name].[contenthash:8][ext]',
         },
       },
       /* for font-awesome */
       {
-        test: /\.woff(2)?(\?v=[0-9]\.[0-9]\.[0-9])?$/,
-        loader: 'url-loader?limit=10000&mimetype=application/font-woff',
-        options: {
-          esModule: false,
-        },
-      },
-      {
-        test: /\.(ttf|eot|svg)(\?v=[0-9]\.[0-9]\.[0-9])?$/,
-        loader: 'file-loader',
-        options: {
-          esModule: false,
-        },
+        test: /\.(woff|woff2|eot|ttf|otf)$/i,
+        type: 'asset/resource',
       },
       {
         test: /\.ya?ml$/,
         include: ROOT_DIR,
         loader: 'js-yaml-loader',
       },
+      {
+        test: /\.geojson$/,
+        type: 'asset/resource',
+      },
+      // {
+      //   test: /\.mdx?$/,
+      //   use: [
+      //     {
+      //       loader: require.resolve('@storybook/mdx2-csf/loader'),
+      //       options: {
+      //         skipCsf: false,
+      //         mdxCompileOptions: {
+      //           remarkPlugins: [remarkGfm],
+      //         },
+      //       },
+      //     },
+      //   ],
+      // },
     ],
   },
   externals: {
@@ -448,28 +503,34 @@ const config = {
     'react/lib/ReactContext': true,
   },
   plugins,
-  devtool: false,
+  devtool: isDevMode ? 'eval-cheap-module-source-map' : false,
 };
+
+// find all the symlinked plugins and use their source code for imports
+Object.entries(packageConfig.dependencies).forEach(([pkg, relativeDir]) => {
+  const srcPath = path.join(APP_DIR, `./node_modules/${pkg}/src`);
+  const dir = relativeDir.replace('file:', '');
+
+  if (/^@superset-ui/.test(pkg) && fs.existsSync(srcPath)) {
+    console.log(`[Superset Plugin] Use symlink source for ${pkg} @ ${dir}`);
+    config.resolve.alias[pkg] = path.resolve(APP_DIR, `${dir}/src`);
+  }
+});
+console.log(''); // pure cosmetic new line
 
 let proxyConfig = getProxyConfig();
 
 if (isDevMode) {
-  config.devtool = 'eval-cheap-module-source-map';
   config.devServer = {
-    before(app, server, compiler) {
+    onBeforeSetupMiddleware(devServer) {
       // load proxy config when manifest updates
-      const hook = compiler.hooks.webpackManifestPluginAfterEmit;
-      hook.tap('ManifestPlugin', manifest => {
+      const { afterEmit } = getCompilerHooks(devServer.compiler);
+      afterEmit.tap('ManifestPlugin', manifest => {
         proxyConfig = getProxyConfig(manifest);
       });
     },
     historyApiFallback: true,
     hot: true,
-    injectClient: false,
-    injectHot: true,
-    inline: true,
-    stats: 'minimal',
-    overlay: true,
     port: devserverPort,
     // Only serves bundled files from webpack-dev-server
     // and proxy everything else to Superset backend
@@ -477,51 +538,31 @@ if (isDevMode) {
       // functions are called for every request
       () => proxyConfig,
     ],
-    contentBase: path.join(process.cwd(), '../static/assets'),
+    client: {
+      overlay: {
+        errors: true,
+        warnings: false,
+        runtimeErrors: error => !/ResizeObserver/.test(error.message),
+      },
+      logging: 'error',
+    },
+    static: path.join(process.cwd(), '../static/assets'),
   };
-
-  // make sure to use @emotion/* modules in the root directory
-  fs.readdirSync(path.resolve(APP_DIR, './node_modules/@emotion'), pkg => {
-    config.resolve.alias[pkg] = path.resolve(
-      APP_DIR,
-      './node_modules/@emotion',
-      pkg,
-    );
-  });
-
-  // find all the symlinked plugins and use their source code for imports
-  let hasSymlink = false;
-  Object.entries(packageConfig.dependencies).forEach(([pkg, version]) => {
-    const srcPath = `./node_modules/${pkg}/src`;
-    if (/superset-ui/.test(pkg) && fs.existsSync(srcPath)) {
-      console.log(
-        `[Superset Plugin] Use symlink source for ${pkg} @ ${version}`,
-      );
-      // only allow exact match so imports like `@superset-ui/plugin-name/lib`
-      // and `@superset-ui/plugin-name/esm` can still work.
-      config.resolve.alias[`${pkg}$`] = `${pkg}/src`;
-      delete config.resolve.alias[pkg];
-      hasSymlink = true;
-    }
-  });
-  if (hasSymlink) {
-    console.log(''); // pure cosmetic new line
-  }
-} else {
-  config.optimization.minimizer = [
-    new TerserPlugin({
-      cache: '.terser-plugin-cache/',
-      parallel: true,
-      extractComments: true,
-    }),
-  ];
 }
 
-// Bundle analyzer is disabled by default
-// Pass flag --analyzeBundle=true to enable
-// e.g. npm run build -- --analyzeBundle=true
-if (analyzeBundle) {
-  config.plugins.push(new BundleAnalyzerPlugin({ analyzerPort }));
+// To
+// e.g. npm run package-stats
+if (process.env.BUNDLE_ANALYZER) {
+  config.plugins.push(new BundleAnalyzerPlugin({ analyzerMode: 'static' }));
+  config.plugins.push(
+    // this creates an HTML page with a sunburst diagram of dependencies.
+    // you'll find it at superset/static/stats/statistics.html
+    // note that the file is >100MB so it's in .gitignore
+    new Visualizer({
+      filename: path.join('..', 'stats', 'statistics.html'),
+      throwOnError: true,
+    }),
+  );
 }
 
 // Speed measurement is disabled by default

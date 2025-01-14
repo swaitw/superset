@@ -16,12 +16,15 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { render, screen } from 'spec/helpers/testing-library';
 import userEvent from '@testing-library/user-event';
 import TimeSeriesColumnControl from '.';
 
-jest.mock('lodash/debounce', () => jest.fn(fn => fn));
+jest.mock('lodash/debounce', () => (fn: Function & { cancel: Function }) => {
+  // eslint-disable-next-line no-param-reassign
+  fn.cancel = jest.fn();
+  return fn;
+});
 
 test('renders with default props', () => {
   render(<TimeSeriesColumnControl />);
@@ -78,7 +81,7 @@ test('triggers onChange when type changes', () => {
   const onChange = jest.fn();
   render(<TimeSeriesColumnControl onChange={onChange} />);
   userEvent.click(screen.getByRole('button'));
-  userEvent.click(screen.getByText('Select...'));
+  userEvent.click(screen.getByText('Select ...'));
   userEvent.click(screen.getByText('Time comparison'));
   expect(onChange).not.toHaveBeenCalled();
   userEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -89,6 +92,19 @@ test('triggers onChange when type changes', () => {
 
 test('triggers onChange when time lag changes', () => {
   const timeLag = '1';
+  const onChange = jest.fn();
+  render(<TimeSeriesColumnControl colType="time" onChange={onChange} />);
+  userEvent.click(screen.getByRole('button'));
+  const timeLagInput = screen.getByPlaceholderText('Time Lag');
+  userEvent.clear(timeLagInput);
+  userEvent.type(timeLagInput, timeLag);
+  expect(onChange).not.toHaveBeenCalled();
+  userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ timeLag }));
+});
+
+test('time lag allows negative values', () => {
+  const timeLag = '-1';
   const onChange = jest.fn();
   render(<TimeSeriesColumnControl colType="time" onChange={onChange} />);
   userEvent.click(screen.getByRole('button'));
@@ -121,7 +137,7 @@ test('triggers onChange when time type changes', () => {
   const onChange = jest.fn();
   render(<TimeSeriesColumnControl colType="time" onChange={onChange} />);
   userEvent.click(screen.getByRole('button'));
-  userEvent.click(screen.getByText('Select...'));
+  userEvent.click(screen.getByText('Select ...'));
   userEvent.click(screen.getByText('Difference'));
   expect(onChange).not.toHaveBeenCalled();
   userEvent.click(screen.getByRole('button', { name: 'Save' }));

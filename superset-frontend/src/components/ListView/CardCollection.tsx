@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
+import { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { TableInstance, Row } from 'react-table';
 import { styled } from '@superset-ui/core';
 import cx from 'classnames';
@@ -25,14 +25,23 @@ interface CardCollectionProps {
   bulkSelectEnabled?: boolean;
   loading: boolean;
   prepareRow: TableInstance['prepareRow'];
-  renderCard?: (row: any) => React.ReactNode;
+  renderCard?: (row: any) => ReactNode;
   rows: TableInstance['rows'];
+  showThumbnails?: boolean;
 }
 
-const CardContainer = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(459px, 1fr));
-  grid-gap: ${({ theme }) => theme.gridUnit * 8}px;
+const CardContainer = styled.div<{ showThumbnails?: boolean }>`
+  ${({ theme, showThumbnails }) => `
+    display: grid;
+    grid-gap: ${theme.gridUnit * 12}px ${theme.gridUnit * 4}px;
+    grid-template-columns: repeat(auto-fit, 300px);
+    margin-top: ${theme.gridUnit * -6}px;
+    padding: ${
+      showThumbnails
+        ? `${theme.gridUnit * 8 + 3}px ${theme.gridUnit * 9}px`
+        : `${theme.gridUnit * 8 + 1}px ${theme.gridUnit * 9}px`
+    };
+  `}
 `;
 
 const CardWrapper = styled.div`
@@ -51,9 +60,10 @@ export default function CardCollection({
   prepareRow,
   renderCard,
   rows,
+  showThumbnails,
 }: CardCollectionProps) {
   function handleClick(
-    event: React.MouseEvent<HTMLDivElement, MouseEvent>,
+    event: ReactMouseEvent<HTMLDivElement, MouseEvent>,
     toggleRowSelected: Row['toggleRowSelected'],
   ) {
     if (bulkSelectEnabled) {
@@ -65,7 +75,7 @@ export default function CardCollection({
 
   if (!renderCard) return null;
   return (
-    <CardContainer>
+    <CardContainer showThumbnails={showThumbnails}>
       {loading &&
         rows.length === 0 &&
         [...new Array(25)].map((e, i) => (

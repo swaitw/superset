@@ -17,8 +17,8 @@
  * under the License.
  */
 
-import React from 'react';
-import _ from 'lodash';
+import { FC } from 'react';
+import { startCase } from 'lodash';
 import AntdEnhancedIcons from './AntdEnhanced';
 import Icon from './Icon';
 import IconType from './IconType';
@@ -27,6 +27,9 @@ const IconFileNames = [
   'alert',
   'alert_solid',
   'alert_solid_small',
+  'area-chart-tile',
+  'bar-chart-tile',
+  'big-number-chart-tile',
   'binoculars',
   'bolt',
   'bolt_small',
@@ -56,6 +59,7 @@ const IconFileNames = [
   'cog',
   'collapse',
   'color_palette',
+  'current-rendered-tile',
   'components',
   'copy',
   'cursor_target',
@@ -64,6 +68,7 @@ const IconFileNames = [
   'dataset_virtual_greyscale',
   'dataset_virtual',
   'download',
+  'drag',
   'edit_alt',
   'edit',
   'email',
@@ -100,6 +105,7 @@ const IconFileNames = [
   'keyboard',
   'layers',
   'lightbulb',
+  'line-chart-tile',
   'link',
   'list',
   'list_view',
@@ -111,6 +117,7 @@ const IconFileNames = [
   'minus',
   'minus_solid',
   'more_horiz',
+  'more_vert',
   'move',
   'nav_charts',
   'nav_dashboard',
@@ -121,6 +128,7 @@ const IconFileNames = [
   'note',
   'offline',
   'paperclip',
+  'pie-chart-tile',
   'placeholder',
   'plus',
   'plus_large',
@@ -139,6 +147,7 @@ const IconFileNames = [
   'sort_desc',
   'sort',
   'table',
+  'table-chart-tile',
   'tag',
   'trash',
   'triangle_change',
@@ -150,17 +159,22 @@ const IconFileNames = [
   'warning_solid',
   'x-large',
   'x-small',
+  'tags',
+  'ballot',
+  'category',
+  'undo',
+  'redo',
 ];
 
-const iconOverrides: Record<string, React.FC> = {};
+const iconOverrides: Record<string, FC<IconType>> = {};
 IconFileNames.forEach(fileName => {
-  const keyName = _.startCase(fileName).replace(/ /g, '');
+  const keyName = startCase(fileName).replace(/ /g, '');
   iconOverrides[keyName] = (props: IconType) => (
     <Icon fileName={fileName} {...props} />
   );
 });
 
-export { IconType };
+export type { IconType };
 
 export default {
   ...AntdEnhancedIcons,

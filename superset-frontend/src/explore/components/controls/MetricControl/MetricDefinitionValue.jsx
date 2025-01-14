@@ -16,7 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import PropTypes from 'prop-types';
 import columnType from './columnType';
 import AdhocMetricOption from './AdhocMetricOption';
@@ -34,7 +33,8 @@ const propTypes = {
   savedMetrics: PropTypes.arrayOf(savedMetricType),
   savedMetricsOptions: PropTypes.arrayOf(savedMetricType),
   multi: PropTypes.bool,
-  datasourceType: PropTypes.string,
+  datasource: PropTypes.object,
+  datasourceWarningMessage: PropTypes.string,
 };
 
 export default function MetricDefinitionValue({
@@ -44,10 +44,13 @@ export default function MetricDefinitionValue({
   columns,
   savedMetrics,
   savedMetricsOptions,
-  datasourceType,
+  datasource,
   onMoveLabel,
   onDropLabel,
   index,
+  type,
+  multi,
+  datasourceWarningMessage,
 }) {
   const getSavedMetricByName = metricName =>
     savedMetrics.find(metric => metric.metric_name === metricName);
@@ -61,19 +64,22 @@ export default function MetricDefinitionValue({
 
   if (option instanceof AdhocMetric || savedMetric) {
     const adhocMetric =
-      option instanceof AdhocMetric ? option : new AdhocMetric({ isNew: true });
+      option instanceof AdhocMetric ? option : new AdhocMetric({});
 
     const metricOptionProps = {
       onMetricEdit,
       onRemoveMetric,
       columns,
       savedMetricsOptions,
-      datasourceType,
+      datasource,
       adhocMetric,
       onMoveLabel,
       onDropLabel,
       index,
       savedMetric: savedMetric ?? {},
+      type,
+      multi,
+      datasourceWarningMessage,
     };
 
     return <AdhocMetricOption {...metricOptionProps} />;

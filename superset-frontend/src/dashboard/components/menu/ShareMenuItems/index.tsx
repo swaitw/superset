@@ -16,70 +16,107 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
-import { useUrlShortener } from 'src/common/hooks/useUrlShortener';
+import { RefObject } from 'react';
 import copyTextToClipboard from 'src/utils/copy';
-import { t } from '@superset-ui/core';
-import { Menu } from 'src/common/components';
+import { t, logging } from '@superset-ui/core';
+import { Menu } from 'src/components/Menu';
+import { getDashboardPermalink } from 'src/utils/urlUtils';
+import { MenuKeys, RootState } from 'src/dashboard/types';
+import { shallowEqual, useSelector } from 'react-redux';
 
 interface ShareMenuItemProps {
-  url: string;
+  url?: string;
   copyMenuItemTitle: string;
   emailMenuItemTitle: string;
   emailSubject: string;
   emailBody: string;
   addDangerToast: Function;
   addSuccessToast: Function;
+  dashboardId: string | number;
+  dashboardComponentId?: string;
+  copyMenuItemRef?: RefObject<any>;
+  shareByEmailMenuItemRef?: RefObject<any>;
+  selectedKeys?: string[];
 }
 
 const ShareMenuItems = (props: ShareMenuItemProps) => {
   const {
-    url,
     copyMenuItemTitle,
     emailMenuItemTitle,
     emailSubject,
     emailBody,
     addDangerToast,
     addSuccessToast,
+    dashboardId,
+    dashboardComponentId,
+    copyMenuItemRef,
+    shareByEmailMenuItemRef,
+    selectedKeys,
     ...rest
   } = props;
+  const { dataMask, activeTabs } = useSelector(
+    (state: RootState) => ({
+      dataMask: state.dataMask,
+      activeTabs: state.dashboardState.activeTabs,
+    }),
+    shallowEqual,
+  );
 
-  const getShortUrl = useUrlShortener(url);
+  async function generateUrl() {
+    return getDashboardPermalink({
+      dashboardId,
+      dataMask,
+      activeTabs,
+      anchor: dashboardComponentId,
+    });
+  }
 
   async function onCopyLink() {
     try {
-      const shortUrl = await getShortUrl();
-      await copyTextToClipboard(shortUrl);
+      await copyTextToClipboard(generateUrl);
       addSuccessToast(t('Copied to clipboard!'));
     } catch (error) {
-      addDangerToast(t('Sorry, your browser does not support copying.'));
+      logging.error(error);
+      addDangerToast(t('Sorry, something went wrong. Try again later.'));
     }
   }
 
   async function onShareByEmail() {
     try {
-      const shortUrl = await getShortUrl();
-      const bodyWithLink = `${emailBody}${shortUrl}`;
-      window.location.href = `mailto:?Subject=${emailSubject}%20&Body=${bodyWithLink}`;
+      const encodedBody = encodeURIComponent(
+        `${emailBody}${await generateUrl()}`,
+      );
+      const encodedSubject = encodeURIComponent(emailSubject);
+      window.location.href = `mailto:?Subject=${encodedSubject}%20&Body=${encodedBody}`;
     } catch (error) {
+      logging.error(error);
       addDangerToast(t('Sorry, something went wrong. Try again later.'));
     }
   }
 
   return (
-    <>
-      <Menu.Item key="copy-url" {...rest}>
-        <div onClick={onCopyLink} role="button" tabIndex={0}>
+    <Menu
+      selectable={false}
+      selectedKeys={selectedKeys}
+      onClick={e =>
+        e.key === MenuKeys.CopyLink ? onCopyLink() : onShareByEmail()
+      }
+    >
+      <Menu.Item key={MenuKeys.CopyLink} ref={copyMenuItemRef} {...rest}>
+        <div role="button" tabIndex={0}>
           {copyMenuItemTitle}
         </div>
       </Menu.Item>
-      <Menu.Item key="share-by-email" {...rest}>
-        <div onClick={onShareByEmail} role="button" tabIndex={0}>
+      <Menu.Item
+        key={MenuKeys.ShareByEmail}
+        ref={shareByEmailMenuItemRef}
+        {...rest}
+      >
+        <div role="button" tabIndex={0}>
           {emailMenuItemTitle}
         </div>
       </Menu.Item>
-    </>
+    </Menu>
   );
 };
-
 export default ShareMenuItems;

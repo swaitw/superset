@@ -16,9 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { useRef } from 'react';
+import { useRef, ReactNode } from 'react';
+
 import { useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
-import { styled, t, useTheme } from '@superset-ui/core';
+import { styled, t, useTheme, keyframes, css } from '@superset-ui/core';
 import { InfoTooltipWithTrigger } from '@superset-ui/chart-controls';
 import { Tooltip } from 'src/components/Tooltip';
 import Icons from 'src/components/Icons';
@@ -45,11 +46,10 @@ export const OptionControlContainer = styled.div<{
   border-radius: 3px;
   cursor: ${({ withCaret }) => (withCaret ? 'pointer' : 'default')};
 `;
-
 export const Label = styled.div`
   ${({ theme }) => `
     display: flex;
-    max-width: 100%;
+    width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     align-items: center;
@@ -57,7 +57,6 @@ export const Label = styled.div`
     padding-left: ${theme.gridUnit}px;
     svg {
       margin-right: ${theme.gridUnit}px;
-      margin-left: ${theme.gridUnit}px;
     }
     .type-label {
       margin-right: ${theme.gridUnit * 2}px;
@@ -69,6 +68,11 @@ export const Label = styled.div`
       display: inline;
     }
   `}
+`;
+
+const LabelText = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 export const CaretContainer = styled.div`
@@ -100,21 +104,89 @@ export const LabelsContainer = styled.div`
   border-radius: ${({ theme }) => theme.gridUnit}px;
 `;
 
+const borderPulse = keyframes`
+  0% {
+    right: 100%;
+  }
+  50% {
+    left: 4px;
+  }
+  90% {
+    right: 4px;
+  }
+  100% {
+    left: 100%;
+  }
+`;
+
 export const DndLabelsContainer = styled.div<{
   canDrop?: boolean;
   isOver?: boolean;
+  isDragging?: boolean;
+  isLoading?: boolean;
 }>`
-  padding: ${({ theme }) => theme.gridUnit}px;
-  border: ${({ canDrop, isOver, theme }) => {
-    if (canDrop) {
-      return `dashed 1px ${theme.colors.info.dark1}`;
-    }
-    if (isOver && !canDrop) {
-      return `dashed 1px ${theme.colors.error.dark1}`;
-    }
-    return `solid 1px ${theme.colors.grayscale.light2}`;
-  }};
-  border-radius: ${({ theme }) => theme.gridUnit}px;
+  ${({ theme, isLoading, canDrop, isDragging, isOver }) => `
+  position: relative;
+  padding: ${theme.gridUnit}px;
+  border: ${
+    !isLoading && isDragging
+      ? `dashed 1px ${
+          canDrop ? theme.colors.info.dark1 : theme.colors.error.dark1
+        }`
+      : `solid 1px ${
+          isLoading && isDragging
+            ? theme.colors.warning.light1
+            : theme.colors.grayscale.light2
+        }`
+  };
+  border-radius: ${theme.gridUnit}px;
+  &:before,
+  &:after {
+    content: ' ';
+    position: absolute;
+    border-radius: ${theme.gridUnit}px;
+  }
+  &:before {
+    display: ${isDragging || isLoading ? 'block' : 'none'};
+    background-color: ${
+      canDrop ? theme.colors.primary.base : theme.colors.error.light1
+    };
+    z-index: ${theme.zIndex.aboveDashboardCharts};
+    opacity: ${theme.opacity.light};
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    left: 1px;
+  }
+  &:after {
+    display: ${isLoading || (canDrop && isOver) ? 'block' : 'none'};
+    background-color: ${
+      isLoading ? theme.colors.grayscale.light3 : theme.colors.primary.base
+    };
+    z-index: ${theme.zIndex.dropdown};
+    opacity: ${theme.opacity.mediumLight};
+    top: ${-theme.gridUnit}px;
+    right: ${-theme.gridUnit}px;
+    bottom: ${-theme.gridUnit}px;
+    left: ${-theme.gridUnit}px;
+    cursor: ${isLoading ? 'wait' : 'auto'};
+  }
+  `}
+
+  &:before {
+    ${({ theme, isLoading }) =>
+      isLoading &&
+      css`
+        animation: ${borderPulse} 2s ease-in infinite;
+        background: linear-gradient(currentColor 0 0) 0 100%/0% 3px no-repeat;
+        background-size: 100% ${theme.gridUnit / 2}px;
+        top: auto;
+        right: ${theme.gridUnit}px;
+        left: ${theme.gridUnit}px;
+        bottom: -${theme.gridUnit / 2}px;
+        height: ${theme.gridUnit / 2}px;
+      `};
+  }
 `;
 
 export const AddControlLabel = styled.div<{
@@ -160,7 +232,7 @@ export const AddIconButton = styled.button`
 `;
 
 interface DragItem {
-  index: number;
+  dragIndex: number;
   type: string;
 }
 
@@ -176,10 +248,12 @@ export const OptionControlLabel = ({
   type,
   index,
   isExtra,
+  datasourceWarningMessage,
   tooltipTitle,
+  multi = true,
   ...props
 }: {
-  label: string | React.ReactNode;
+  label: string | ReactNode;
   savedMetric?: savedMetricType;
   adhocMetric?: AdhocMetric;
   onRemove: () => void;
@@ -191,20 +265,30 @@ export const OptionControlLabel = ({
   type: string;
   index: number;
   isExtra?: boolean;
-  tooltipTitle: string;
+  datasourceWarningMessage?: string;
+  tooltipTitle?: string;
+  multi?: boolean;
 }) => {
   const theme = useTheme();
   const ref = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLDivElement>(null);
+  const hasMetricName = savedMetric?.metric_name;
   const [, drop] = useDrop({
     accept: type,
     drop() {
+      if (!multi) {
+        return;
+      }
       onDropLabel?.();
     },
     hover(item: DragItem, monitor: DropTargetMonitor) {
+      if (!multi) {
+        return;
+      }
       if (!ref.current) {
         return;
       }
-      const dragIndex = item.index;
+      const { dragIndex } = item;
       const hoverIndex = index;
       // Don't replace items with themselves
       if (dragIndex === hoverIndex) {
@@ -239,13 +323,13 @@ export const OptionControlLabel = ({
       // but it's good here for the sake of performance
       // to avoid expensive index searches.
       // eslint-disable-next-line no-param-reassign
-      item.index = hoverIndex;
+      item.dragIndex = hoverIndex;
     },
   });
-  const [, drag] = useDrag({
+  const [{ isDragging }, drag] = useDrag({
     item: {
       type,
-      index,
+      dragIndex: index,
       value: savedMetric?.metric_name ? savedMetric : adhocMetric,
     },
     collect: monitor => ({
@@ -254,10 +338,34 @@ export const OptionControlLabel = ({
   });
 
   const getLabelContent = () => {
-    if (savedMetric?.metric_name) {
-      return <StyledMetricOption metric={savedMetric} />;
+    const shouldShowTooltip =
+      (!isDragging &&
+        typeof label === 'string' &&
+        tooltipTitle &&
+        label &&
+        tooltipTitle !== label) ||
+      (!isDragging &&
+        labelRef &&
+        labelRef.current &&
+        labelRef.current.scrollWidth > labelRef.current.clientWidth);
+
+    if (savedMetric && hasMetricName) {
+      return (
+        <StyledMetricOption
+          metric={savedMetric}
+          labelRef={labelRef}
+          shouldShowTooltip={!isDragging}
+        />
+      );
     }
-    return <Tooltip title={tooltipTitle}>{label}</Tooltip>;
+    if (!shouldShowTooltip) {
+      return <LabelText ref={labelRef}>{label}</LabelText>;
+    }
+    return (
+      <Tooltip title={tooltipTitle || label}>
+        <LabelText ref={labelRef}>{label}</LabelText>
+      </Tooltip>
+    );
   };
 
   const getOptionControlContent = () => (
@@ -274,18 +382,21 @@ export const OptionControlLabel = ({
         <Icons.XSmall iconColor={theme.colors.grayscale.light1} />
       </CloseContainer>
       <Label data-test="control-label">
-        {isFunction && <Icons.FunctionX viewBox="0 0 16 11" iconSize="l" />}
+        {isFunction && <Icons.FieldDerived />}
         {getLabelContent()}
       </Label>
-      {isExtra && (
+      {(!!datasourceWarningMessage || isExtra) && (
         <StyledInfoTooltipWithTrigger
           icon="exclamation-triangle"
           placement="top"
           bsStyle="warning"
-          tooltip={t(`
+          tooltip={
+            datasourceWarningMessage ||
+            t(`
                 This filter was inherited from the dashboard's context.
                 It won't be saved when saving the chart.
-              `)}
+              `)
+          }
         />
       )}
       {withCaret && (

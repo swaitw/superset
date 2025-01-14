@@ -14,14 +14,21 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import json
+
+from __future__ import annotations
+
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
+from sqlalchemy import types
+
+from superset import is_feature_enabled
+from superset.constants import TimeGrain
 from superset.db_engine_specs.base import BaseEngineSpec
+from superset.db_engine_specs.exceptions import SupersetDBAPIConnectionError
 from superset.exceptions import SupersetException
-from superset.utils import core as utils
+from superset.utils import core as utils, json
 
 if TYPE_CHECKING:
     from superset.connectors.sqla.models import TableColumn
@@ -30,46 +37,48 @@ if TYPE_CHECKING:
 logger = logging.getLogger()
 
 
-class DruidEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
+class DruidEngineSpec(BaseEngineSpec):
     """Engine spec for Druid.io"""
 
     engine = "druid"
     engine_name = "Apache Druid"
-    allows_joins = False
+    allows_joins = is_feature_enabled("DRUID_JOINS")
     allows_subqueries = True
 
     _time_grain_expressions = {
         None: "{col}",
-        "PT1S": "FLOOR({col} TO SECOND)",
-        "PT5S": "TIME_FLOOR({col}, 'PT5S')",
-        "PT30S": "TIME_FLOOR({col}, 'PT30S')",
-        "PT1M": "FLOOR({col} TO MINUTE)",
-        "PT5M": "TIME_FLOOR({col}, 'PT5M')",
-        "PT10M": "TIME_FLOOR({col}, 'PT10M')",
-        "PT15M": "TIME_FLOOR({col}, 'PT15M')",
-        "PT0.5H": "TIME_FLOOR({col}, 'PT30M')",
-        "PT1H": "FLOOR({col} TO HOUR)",
-        "PT6H": "TIME_FLOOR({col}, 'PT6H')",
-        "P1D": "FLOOR({col} TO DAY)",
-        "P1W": "FLOOR({col} TO WEEK)",
-        "P1M": "FLOOR({col} TO MONTH)",
-        "P0.25Y": "FLOOR({col} TO QUARTER)",
-        "P1Y": "FLOOR({col} TO YEAR)",
-        "P1W/1970-01-03T00:00:00Z": (
-            "TIMESTAMPADD(DAY, 5, FLOOR(TIMESTAMPADD(DAY, 1, {col}) TO WEEK))"
+        TimeGrain.SECOND: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT1S')",
+        TimeGrain.FIVE_SECONDS: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT5S')",
+        TimeGrain.THIRTY_SECONDS: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT30S')",
+        TimeGrain.MINUTE: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT1M')",
+        TimeGrain.FIVE_MINUTES: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT5M')",
+        TimeGrain.TEN_MINUTES: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT10M')",
+        TimeGrain.FIFTEEN_MINUTES: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT15M')",
+        TimeGrain.THIRTY_MINUTES: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT30M')",
+        TimeGrain.HOUR: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT1H')",
+        TimeGrain.SIX_HOURS: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'PT6H')",
+        TimeGrain.DAY: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'P1D')",
+        TimeGrain.WEEK: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'P1W')",
+        TimeGrain.MONTH: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'P1M')",
+        TimeGrain.QUARTER: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'P3M')",
+        TimeGrain.YEAR: "TIME_FLOOR(CAST({col} AS TIMESTAMP), 'P1Y')",
+        TimeGrain.WEEK_ENDING_SATURDAY: (
+            "TIME_SHIFT(TIME_FLOOR(TIME_SHIFT(CAST({col} AS TIMESTAMP), "
+            "'P1D', 1), 'P1W'), 'P1D', 5)"
         ),
-        "1969-12-28T00:00:00Z/P1W": (
-            "TIMESTAMPADD(DAY, -1, FLOOR(TIMESTAMPADD(DAY, 1, {col}) TO WEEK))"
+        TimeGrain.WEEK_STARTING_SUNDAY: (
+            "TIME_SHIFT(TIME_FLOOR(TIME_SHIFT(CAST({col} AS TIMESTAMP), "
+            "'P1D', 1), 'P1W'), 'P1D', -1)"
         ),
     }
 
     @classmethod
-    def alter_new_orm_column(cls, orm_col: "TableColumn") -> None:
+    def alter_new_orm_column(cls, orm_col: TableColumn) -> None:
         if orm_col.column_name == "__time":
             orm_col.is_dttm = True
 
     @staticmethod
-    def get_extra_params(database: "Database") -> Dict[str, Any]:
+    def get_extra_params(database: Database) -> dict[str, Any]:
         """
         For Druid, the path to a SSL certificate is placed in `connect_args`.
 
@@ -79,8 +88,8 @@ class DruidEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         """
         try:
             extra = json.loads(database.extra or "{}")
-        except json.JSONDecodeError:
-            raise SupersetException("Unable to parse database extras")
+        except json.JSONDecodeError as ex:
+            raise SupersetException("Unable to parse database extras") from ex
 
         if database.server_cert:
             engine_params = extra.get("engine_params", {})
@@ -93,10 +102,36 @@ class DruidEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         return extra
 
     @classmethod
-    def convert_dttm(cls, target_type: str, dttm: datetime) -> Optional[str]:
-        tt = target_type.upper()
-        if tt == utils.TemporalType.DATE:
+    def convert_dttm(
+        cls, target_type: str, dttm: datetime, db_extra: dict[str, Any] | None = None
+    ) -> str | None:
+        sqla_type = cls.get_sqla_column_type(target_type)
+
+        if isinstance(sqla_type, types.Date):
             return f"CAST(TIME_PARSE('{dttm.date().isoformat()}') AS DATE)"
-        if tt in (utils.TemporalType.DATETIME, utils.TemporalType.TIMESTAMP):
+        if isinstance(sqla_type, (types.DateTime, types.TIMESTAMP)):
             return f"""TIME_PARSE('{dttm.isoformat(timespec="seconds")}')"""
         return None
+
+    @classmethod
+    def epoch_to_dttm(cls) -> str:
+        """
+        Convert from number of seconds since the epoch to a timestamp.
+        """
+        return "MILLIS_TO_TIMESTAMP({col} * 1000)"
+
+    @classmethod
+    def epoch_ms_to_dttm(cls) -> str:
+        """
+        Convert from number of milliseconds since the epoch to a timestamp.
+        """
+        return "MILLIS_TO_TIMESTAMP({col})"
+
+    @classmethod
+    def get_dbapi_exception_mapping(cls) -> dict[type[Exception], type[Exception]]:
+        # pylint: disable=import-outside-toplevel
+        from requests import exceptions as requests_exceptions
+
+        return {
+            requests_exceptions.ConnectionError: SupersetDBAPIConnectionError,
+        }

@@ -16,24 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { styledMount as mount } from 'spec/helpers/theming';
 import { act } from 'react-dom/test-utils';
 import { QueryParamProvider } from 'use-query-params';
 import { supersetTheme, ThemeProvider } from '@superset-ui/core';
+import thunk from 'redux-thunk';
+import configureStore from 'redux-mock-store';
 
 import Button from 'src/components/Button';
-import { Empty } from 'src/common/components';
+import { Empty } from 'src/components/EmptyState/Empty';
 import CardCollection from 'src/components/ListView/CardCollection';
 import { CardSortSelect } from 'src/components/ListView/CardSortSelect';
 import IndeterminateCheckbox from 'src/components/IndeterminateCheckbox';
 import ListView from 'src/components/ListView/ListView';
 import ListViewFilters from 'src/components/ListView/Filters';
-import ListViewPagination from 'src/components/dataViewCommon/Pagination';
-import TableCollection from 'src/components/dataViewCommon/TableCollection';
-import Pagination from 'src/components/Pagination';
+import ListViewPagination from 'src/components/Pagination';
+import TableCollection from 'src/components/TableCollection';
+import Pagination from 'src/components/Pagination/Wrapper';
 
 import waitForComponentToPaint from 'spec/helpers/waitForComponentToPaint';
+import { Provider } from 'react-redux';
+
+const middlewares = [thunk];
+const mockStore = configureStore(middlewares);
 
 function makeMockLocation(query) {
   const queryStr = encodeURIComponent(query);
@@ -126,12 +131,15 @@ const mockedProps = {
 
 const factory = (props = mockedProps) =>
   mount(
-    <QueryParamProvider location={makeMockLocation()}>
-      <ListView {...props} />
-    </QueryParamProvider>,
+    <Provider store={mockStore()}>
+      <QueryParamProvider location={makeMockLocation()}>
+        <ListView {...props} />
+      </QueryParamProvider>
+    </Provider>,
     {
       wrappingComponent: ThemeProvider,
       wrappingComponentProps: { theme: supersetTheme },
+      useRedux: true,
     },
   );
 
@@ -152,12 +160,12 @@ describe('ListView', () => {
     expect(wrapper.find(ListView)).toExist();
     expect(mockedProps.fetchData.mock.calls[0]).toMatchInlineSnapshot(
       `
-        Array [
-          Object {
-            "filters": Array [],
+        [
+          {
+            "filters": [],
             "pageIndex": 0,
             "pageSize": 1,
-            "sortBy": Array [],
+            "sortBy": [],
           },
         ]
       `,
@@ -169,13 +177,13 @@ describe('ListView', () => {
     expect(mockedProps.fetchData).toHaveBeenCalled();
     expect(mockedProps.fetchData.mock.calls[0]).toMatchInlineSnapshot(
       `
-        Array [
-          Object {
-            "filters": Array [],
+        [
+          {
+            "filters": [],
             "pageIndex": 0,
             "pageSize": 1,
-            "sortBy": Array [
-              Object {
+            "sortBy": [
+              {
                 "desc": false,
                 "id": "id",
               },
@@ -200,13 +208,13 @@ describe('ListView', () => {
     wrapper.update();
 
     expect(mockedProps.fetchData.mock.calls[0]).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "filters": Array [],
+      [
+        {
+          "filters": [],
           "pageIndex": 1,
           "pageSize": 1,
-          "sortBy": Array [
-            Object {
+          "sortBy": [
+            {
               "desc": false,
               "id": "id",
             },
@@ -234,9 +242,9 @@ describe('ListView', () => {
 
     expect(mockedProps.bulkActions[0].onSelect.mock.calls[0])
       .toMatchInlineSnapshot(`
-      Array [
-        Array [
-          Object {
+      [
+        [
+          {
             "age": 10,
             "id": 1,
             "name": "data 1",
@@ -265,15 +273,15 @@ describe('ListView', () => {
 
     expect(mockedProps.bulkActions[0].onSelect.mock.calls[0])
       .toMatchInlineSnapshot(`
-      Array [
-        Array [
-          Object {
+      [
+        [
+          {
             "age": 10,
             "id": 1,
             "name": "data 1",
             "time": "2020-11-18T07:53:45.354Z",
           },
-          Object {
+          {
             "age": 1,
             "id": 2,
             "name": "data 2",
@@ -377,8 +385,8 @@ describe('ListView', () => {
     expect(wrapper.find(ListViewFilters)).toExist();
   });
 
-  it('fetched async filter values on mount', () => {
-    expect(fetchSelectsMock).toHaveBeenCalled();
+  it('does not fetch async filter values on mount', () => {
+    expect(fetchSelectsMock).not.toHaveBeenCalled();
   });
 
   it('calls fetchData on filter', () => {
@@ -387,7 +395,7 @@ describe('ListView', () => {
         .find('[data-test="filters-select"]')
         .first()
         .props()
-        .onChange({ value: 'bar' });
+        .onChange({ label: 'bar', value: 'bar' });
     });
 
     act(() => {
@@ -395,29 +403,34 @@ describe('ListView', () => {
         .find('[data-test="filters-search"]')
         .first()
         .props()
-        .onChange({ currentTarget: { value: 'something' } });
+        .onChange({
+          currentTarget: { label: 'something', value: 'something' },
+        });
     });
 
     wrapper.update();
 
     act(() => {
-      wrapper.find('[data-test="search-input"]').last().props().onBlur();
+      wrapper.find('[data-test="filters-search"]').last().props().onBlur();
     });
 
     expect(mockedProps.fetchData.mock.calls[0]).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "filters": Array [
-            Object {
+      [
+        {
+          "filters": [
+            {
               "id": "id",
               "operator": "eq",
-              "value": "bar",
+              "value": {
+                "label": "bar",
+                "value": "bar",
+              },
             },
           ],
           "pageIndex": 0,
           "pageSize": 1,
-          "sortBy": Array [
-            Object {
+          "sortBy": [
+            {
               "desc": false,
               "id": "id",
             },
@@ -427,15 +440,18 @@ describe('ListView', () => {
     `);
 
     expect(mockedProps.fetchData.mock.calls[1]).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "filters": Array [
-            Object {
+      [
+        {
+          "filters": [
+            {
               "id": "id",
               "operator": "eq",
-              "value": "bar",
+              "value": {
+                "label": "bar",
+                "value": "bar",
+              },
             },
-            Object {
+            {
               "id": "name",
               "operator": "ct",
               "value": "something",
@@ -443,8 +459,8 @@ describe('ListView', () => {
           ],
           "pageIndex": 0,
           "pageSize": 1,
-          "sortBy": Array [
-            Object {
+          "sortBy": [
+            {
               "desc": false,
               "id": "id",
             },
@@ -462,7 +478,7 @@ describe('ListView', () => {
     });
 
     await act(async () => {
-      wrapper2.find('[data-test="card-sort-select"]').first().props().onChange({
+      wrapper2.find('[aria-label="Sort"]').first().props().onSelect({
         desc: false,
         id: 'something',
         label: 'Alphabetical',

@@ -16,11 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { render, screen } from 'spec/helpers/testing-library';
 import userEvent from '@testing-library/user-event';
-import { supersetTheme } from '@superset-ui/core';
-import { hexToRgb } from 'src/utils/colorUtils';
+import { supersetTheme, hexToRgb } from '@superset-ui/core';
 import Collapse, { CollapseProps } from '.';
 
 function renderCollapse(props?: CollapseProps) {
@@ -93,8 +91,8 @@ test('renders with custom properties', () => {
   });
 
   const header = document.getElementsByClassName('ant-collapse-header')[0];
-  const arrow = document.getElementsByClassName('ant-collapse-arrow')[0]
-    .children[0];
+  const arrow =
+    document.getElementsByClassName('ant-collapse-arrow')[0].children[0];
 
   const headerStyle = window.getComputedStyle(header);
   const arrowStyle = window.getComputedStyle(arrow);

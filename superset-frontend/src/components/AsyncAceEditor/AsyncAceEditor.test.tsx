@@ -16,7 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { render, screen, waitFor } from 'spec/helpers/testing-library';
 import AsyncAceEditor, {
   SQLEditor,
@@ -30,7 +29,7 @@ import AsyncAceEditor, {
   AsyncAceEditorOptions,
 } from 'src/components/AsyncAceEditor';
 
-const selector = '[id="brace-editor"]';
+const selector = '[id="ace-editor"]';
 
 test('renders SQLEditor', async () => {
   const { container } = render(<SQLEditor />);

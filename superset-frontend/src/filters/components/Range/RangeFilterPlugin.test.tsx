@@ -17,9 +17,9 @@
  * under the License.
  */
 import { AppSection, GenericDataType } from '@superset-ui/core';
-import React from 'react';
-import { render } from 'spec/helpers/testing-library';
+import { render, screen } from 'spec/helpers/testing-library';
 import RangeFilterPlugin from './RangeFilterPlugin';
+import { SingleValueType } from './SingleValueType';
 import transformProps from './transformProps';
 
 const rangeProps = {
@@ -36,7 +36,7 @@ const rangeProps = {
         column: {
           column_name: 'SP_POP_TOTL',
           id: 1,
-          type_generic: GenericDataType.NUMERIC,
+          type_generic: GenericDataType.Numeric,
         },
         expressionType: 'SIMPLE',
         hasCustomLabel: true,
@@ -47,7 +47,7 @@ const rangeProps = {
         column: {
           column_name: 'SP_POP_TOTL',
           id: 2,
-          type_generic: GenericDataType.NUMERIC,
+          type_generic: GenericDataType.Numeric,
         },
         expressionType: 'SIMPLE',
         hasCustomLabel: true,
@@ -69,7 +69,7 @@ const rangeProps = {
     {
       rowcount: 1,
       colnames: ['min', 'max'],
-      coltypes: [GenericDataType.NUMERIC, GenericDataType.NUMERIC],
+      coltypes: [GenericDataType.Numeric, GenericDataType.Numeric],
       data: [{ min: 10, max: 100 }],
       applied_filters: [],
       rejected_filters: [],
@@ -78,7 +78,7 @@ const rangeProps = {
   width: 220,
   behaviors: ['NATIVE_FILTER'],
   isRefreshing: false,
-  appSection: AppSection.DASHBOARD,
+  appSection: AppSection.Dashboard,
 };
 
 describe('RangeFilterPlugin', () => {
@@ -115,6 +115,71 @@ describe('RangeFilterPlugin', () => {
       filterState: {
         label: 'x ≤ 70',
         value: [10, 70],
+      },
+    });
+  });
+
+  it('should call setDataMask with correct greater than filter', () => {
+    getWrapper({
+      enableSingleValue: SingleValueType.Minimum,
+      defaultValue: [20, 60],
+    });
+    expect(setDataMask).toHaveBeenCalledWith({
+      extraFormData: {
+        filters: [
+          {
+            col: 'SP_POP_TOTL',
+            op: '>=',
+            val: 20,
+          },
+        ],
+      },
+      filterState: {
+        label: 'x ≥ 20',
+        value: [20, 100],
+      },
+    });
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuenow', '20');
+  });
+
+  it('should call setDataMask with correct less than filter', () => {
+    getWrapper({
+      enableSingleValue: SingleValueType.Maximum,
+      defaultValue: [20, 60],
+    });
+    expect(setDataMask).toHaveBeenCalledWith({
+      extraFormData: {
+        filters: [
+          {
+            col: 'SP_POP_TOTL',
+            op: '<=',
+            val: 60,
+          },
+        ],
+      },
+      filterState: {
+        label: 'x ≤ 60',
+        value: [10, 60],
+      },
+    });
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuenow', '60');
+  });
+
+  it('should call setDataMask with correct exact filter', () => {
+    getWrapper({ enableSingleValue: SingleValueType.Exact });
+    expect(setDataMask).toHaveBeenCalledWith({
+      extraFormData: {
+        filters: [
+          {
+            col: 'SP_POP_TOTL',
+            op: '==',
+            val: 10,
+          },
+        ],
+      },
+      filterState: {
+        label: 'x = 10',
+        value: [10, 10],
       },
     });
   });

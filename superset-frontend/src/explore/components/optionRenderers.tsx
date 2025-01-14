@@ -17,7 +17,6 @@
  * under the License.
  */
 
-import React from 'react';
 import { styled } from '@superset-ui/core';
 import {
   MetricOption,
@@ -27,6 +26,7 @@ import {
 } from '@superset-ui/chart-controls';
 
 const OptionContainer = styled.div`
+  width: 100%;
   > span {
     display: flex;
     align-items: center;

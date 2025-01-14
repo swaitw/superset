@@ -53,26 +53,43 @@ github:
     merge: false
     rebase: false
 
+  ghp_branch:  gh-pages
+  ghp_path: /
+
   protected_branches:
     master:
       required_status_checks:
         # strict means "Require branches to be up to date before merging".
         strict: false
         # contexts are the names of checks that must pass
+        # unfortunately AFAICT for `matrix:` jobs, we have to itemize every
+        # combination here.
         contexts:
-          - check
+          - lint-check
+          - cypress-matrix (0, chrome)
           - cypress-matrix (1, chrome)
           - cypress-matrix (2, chrome)
           - cypress-matrix (3, chrome)
-          - docker-build
+          - cypress-matrix (4, chrome)
+          - cypress-matrix (5, chrome)
+          - dependency-review
           - frontend-build
-          - pre-commit (3.7)
-          - python-lint (3.7)
-          - test-mysql (3.7)
-          - test-postgres (3.7)
-          - test-postgres (3.8)
-          - test-sqlite (3.7)
+          - pre-commit (current)
+          - pre-commit (previous)
+          - test-mysql
+          - test-postgres (current)
+          - test-postgres-hive
+          - test-postgres-presto
+          - test-sqlite
+          - unit-tests (current)
 
+      required_pull_request_reviews:
+        dismiss_stale_reviews: false
+        require_code_owner_reviews: true
+        required_approving_review_count: 1
+
+      required_signatures: false
+    gh-pages:
       required_pull_request_reviews:
         dismiss_stale_reviews: false
         require_code_owner_reviews: true

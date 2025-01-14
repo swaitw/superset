@@ -22,7 +22,7 @@ const config = require('../config.test.json');
 import { describe, expect, test, beforeEach, afterEach } from '@jest/globals';
 import * as http from 'http';
 import * as net from 'net';
-import WebSocket from 'ws';
+import { WebSocket } from 'ws';
 
 // NOTE: these mock variables needs to start with "mock" due to
 // calls to `jest.mock` being hoisted to the top of the file.
@@ -89,16 +89,19 @@ describe('server', () => {
         end: endMock,
       };
 
-      server.httpRequest(request as any, response as any);
+      server.httpRequest(
+        request as unknown as http.IncomingMessage,
+        response as unknown as http.ServerResponse<http.IncomingMessage>,
+      );
 
-      expect(writeHeadMock).toBeCalledTimes(1);
+      expect(writeHeadMock).toHaveBeenCalledTimes(1);
       expect(writeHeadMock).toHaveBeenLastCalledWith(200);
 
-      expect(endMock).toBeCalledTimes(1);
+      expect(endMock).toHaveBeenCalledTimes(1);
       expect(endMock).toHaveBeenLastCalledWith('OK');
     });
 
-    test('reponds with a 404 when not found', () => {
+    test('responds with a 404 when not found', () => {
       const endMock = jest.fn();
       const writeHeadMock = jest.fn();
 
@@ -115,12 +118,15 @@ describe('server', () => {
         end: endMock,
       };
 
-      server.httpRequest(request as any, response as any);
+      server.httpRequest(
+        request as unknown as http.IncomingMessage,
+        response as unknown as http.ServerResponse<http.IncomingMessage>,
+      );
 
-      expect(writeHeadMock).toBeCalledTimes(1);
+      expect(writeHeadMock).toHaveBeenCalledTimes(1);
       expect(writeHeadMock).toHaveBeenLastCalledWith(404);
 
-      expect(endMock).toBeCalledTimes(1);
+      expect(endMock).toHaveBeenCalledTimes(1);
       expect(endMock).toHaveBeenLastCalledWith('Not Found');
     });
   });
@@ -138,36 +144,53 @@ describe('server', () => {
   describe('redisUrlFromConfig', () => {
     test('it builds a valid Redis URL from defaults', () => {
       expect(
-        server.redisUrlFromConfig({
+        server.buildRedisOpts({
           port: 6379,
           host: '127.0.0.1',
+          username: 'test-user',
           password: '',
           db: 0,
           ssl: false,
+          validateHostname: false,
         }),
-      ).toEqual('redis://127.0.0.1:6379/0');
+      ).toEqual({ db: 0, host: '127.0.0.1', port: 6379 });
     });
     test('it builds a valid Redis URL with a password', () => {
       expect(
-        server.redisUrlFromConfig({
+        server.buildRedisOpts({
           port: 6380,
           host: 'redis.local',
+          username: 'cool-user',
           password: 'foo',
           db: 1,
           ssl: false,
+          validateHostname: false,
         }),
-      ).toEqual('redis://:foo@redis.local:6380/1');
+      ).toEqual({
+        db: 1,
+        host: 'redis.local',
+        password: 'foo',
+        port: 6380,
+        username: 'cool-user',
+      });
     });
     test('it builds a valid Redis URL with SSL', () => {
       expect(
-        server.redisUrlFromConfig({
+        server.buildRedisOpts({
           port: 6379,
           host: '127.0.0.1',
           password: '',
+          username: 'cool-user',
           db: 0,
           ssl: true,
+          validateHostname: false,
         }),
-      ).toEqual('rediss://127.0.0.1:6379/0');
+      ).toEqual({
+        db: 0,
+        host: '127.0.0.1',
+        port: 6379,
+        tls: { checkServerIdentity: expect.anything() },
+      });
     });
   });
 
@@ -177,16 +200,16 @@ describe('server', () => {
       const sendMock = jest.spyOn(ws, 'send');
       const socketInstance = { ws: ws, channel: channelId, pongTs: Date.now() };
 
-      expect(statsdIncrementMock).toBeCalledTimes(0);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(0);
       server.trackClient(channelId, socketInstance);
-      expect(statsdIncrementMock).toBeCalledTimes(1);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(1);
       expect(statsdIncrementMock).toHaveBeenNthCalledWith(
         1,
         'ws_connected_client',
       );
 
       server.processStreamResults(streamReturnValue);
-      expect(statsdIncrementMock).toBeCalledTimes(1);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(1);
 
       const message1 = `{"id":"1615426152415-0","channel_id":"${channelId}","job_id":"c9b99965-8f1e-4ce5-aa43-d6fc94d6a510","user_id":"1","status":"done","errors":[],"result_url":"/superset/explore_json/data/ejr-37281682b1282cdb8f25e0de0339b386"}`;
       const message2 = `{"id":"1615426152516-0","channel_id":"${channelId}","job_id":"f1e5bb1f-f2f1-4f21-9b2f-c9b91dcc9b59","user_id":"1","status":"done","errors":[],"result_url":"/api/v1/chart/data/qc-64e8452dc9907dd77746cb75a19202de"}`;
@@ -198,9 +221,9 @@ describe('server', () => {
       const ws = new wsMock('localhost');
       const sendMock = jest.spyOn(ws, 'send');
 
-      expect(statsdIncrementMock).toBeCalledTimes(0);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(0);
       server.processStreamResults(streamReturnValue);
-      expect(statsdIncrementMock).toBeCalledTimes(0);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(0);
 
       expect(sendMock).not.toHaveBeenCalled();
     });
@@ -213,16 +236,16 @@ describe('server', () => {
       const cleanChannelMock = jest.spyOn(server, 'cleanChannel');
       const socketInstance = { ws: ws, channel: channelId, pongTs: Date.now() };
 
-      expect(statsdIncrementMock).toBeCalledTimes(0);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(0);
       server.trackClient(channelId, socketInstance);
-      expect(statsdIncrementMock).toBeCalledTimes(1);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(1);
       expect(statsdIncrementMock).toHaveBeenNthCalledWith(
         1,
         'ws_connected_client',
       );
 
       server.processStreamResults(streamReturnValue);
-      expect(statsdIncrementMock).toBeCalledTimes(2);
+      expect(statsdIncrementMock).toHaveBeenCalledTimes(2);
       expect(statsdIncrementMock).toHaveBeenNthCalledWith(
         2,
         'ws_client_send_error',
@@ -459,6 +482,18 @@ describe('server', () => {
     });
   });
 
+  const setReadyState = (ws: WebSocket, value: typeof ws.readyState) => {
+    // workaround for not being able to do
+    // spyOn(instance,'readyState','get').and.returnValue(value);
+    // See for details: https://github.com/facebook/jest/issues/9675
+    Object.defineProperty(ws, 'readyState', {
+      configurable: true,
+      get() {
+        return value;
+      },
+    });
+  };
+
   describe('checkSockets', () => {
     let ws: WebSocket;
     let pingSpy: jest.SpyInstance;
@@ -473,7 +508,7 @@ describe('server', () => {
     });
 
     test('active sockets', () => {
-      ws.readyState = WebSocket.OPEN;
+      setReadyState(ws, WebSocket.OPEN);
       server.trackClient(channelId, socketInstance);
 
       server.checkSockets();
@@ -484,7 +519,7 @@ describe('server', () => {
     });
 
     test('stale sockets', () => {
-      ws.readyState = WebSocket.OPEN;
+      setReadyState(ws, WebSocket.OPEN);
       socketInstance.pongTs = Date.now() - 60000;
       server.trackClient(channelId, socketInstance);
 
@@ -496,7 +531,7 @@ describe('server', () => {
     });
 
     test('closed sockets', () => {
-      ws.readyState = WebSocket.CLOSED;
+      setReadyState(ws, WebSocket.CLOSED);
       server.trackClient(channelId, socketInstance);
 
       server.checkSockets();
@@ -522,7 +557,7 @@ describe('server', () => {
     });
 
     test('active sockets', () => {
-      ws.readyState = WebSocket.OPEN;
+      setReadyState(ws, WebSocket.OPEN);
       server.trackClient(channelId, socketInstance);
 
       server.cleanChannel(channelId);
@@ -531,7 +566,7 @@ describe('server', () => {
     });
 
     test('closing sockets', () => {
-      ws.readyState = WebSocket.CLOSING;
+      setReadyState(ws, WebSocket.CLOSING);
       server.trackClient(channelId, socketInstance);
 
       server.cleanChannel(channelId);
@@ -540,11 +575,11 @@ describe('server', () => {
     });
 
     test('multiple sockets', () => {
-      ws.readyState = WebSocket.OPEN;
+      setReadyState(ws, WebSocket.OPEN);
       server.trackClient(channelId, socketInstance);
 
       const ws2 = new wsMock('localhost');
-      ws2.readyState = WebSocket.OPEN;
+      setReadyState(ws2, WebSocket.OPEN);
       const socketInstance2 = {
         ws: ws2,
         channel: channelId,
@@ -556,7 +591,7 @@ describe('server', () => {
 
       expect(server.channels[channelId].sockets.length).toBe(2);
 
-      ws2.readyState = WebSocket.CLOSED;
+      setReadyState(ws2, WebSocket.CLOSED);
       server.cleanChannel(channelId);
 
       expect(server.channels[channelId].sockets.length).toBe(1);

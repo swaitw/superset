@@ -16,23 +16,34 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { Filter } from '../../types';
-import { CascadeFilter } from '../CascadeFilters/types';
-import { mapParentFiltersToChildren } from '../utils';
+import { debounce } from 'lodash';
+import { Dispatch } from 'react';
+import {
+  setFocusedNativeFilter,
+  unsetFocusedNativeFilter,
+  setHoveredNativeFilter,
+  unsetHoveredNativeFilter,
+} from 'src/dashboard/actions/nativeFilters';
+import { FAST_DEBOUNCE } from 'src/constants';
 
-// eslint-disable-next-line import/prefer-default-export
-export function buildCascadeFiltersTree(filters: Filter[]): CascadeFilter[] {
-  const cascadeChildren = mapParentFiltersToChildren(filters);
+export const dispatchHoverAction = debounce(
+  (dispatch: Dispatch<any>, id?: string) => {
+    if (id) {
+      dispatch(setHoveredNativeFilter(id));
+    } else {
+      dispatch(unsetHoveredNativeFilter());
+    }
+  },
+  FAST_DEBOUNCE,
+);
 
-  const getCascadeFilter = (filter: Filter): CascadeFilter => {
-    const children = cascadeChildren[filter.id] || [];
-    return {
-      ...filter,
-      cascadeChildren: children.map(getCascadeFilter),
-    };
-  };
-
-  return filters
-    .filter(filter => !filter.cascadeParentIds?.length)
-    .map(getCascadeFilter);
-}
+export const dispatchFocusAction = debounce(
+  (dispatch: Dispatch<any>, id?: string) => {
+    if (id) {
+      dispatch(setFocusedNativeFilter(id));
+    } else {
+      dispatch(unsetFocusedNativeFilter());
+    }
+  },
+  FAST_DEBOUNCE,
+);

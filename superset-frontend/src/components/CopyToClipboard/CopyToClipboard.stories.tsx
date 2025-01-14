@@ -16,10 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
+import { useTheme } from '@superset-ui/core';
 import Button from 'src/components/Button';
-import Icon from 'src/components/Icon';
-import ToastPresenter from 'src/messageToasts/containers/ToastPresenter';
+import Icons from 'src/components/Icons';
+import ToastContainer from 'src/components/MessageToasts/ToastContainer';
 import CopyToClipboard from '.';
 
 export default {
@@ -28,16 +28,17 @@ export default {
 };
 
 export const InteractiveCopyToClipboard = ({ copyNode, ...rest }: any) => {
+  const theme = useTheme();
   let node = <Button>Copy</Button>;
   if (copyNode === 'Icon') {
-    node = <Icon name="copy" />;
+    node = <Icons.Copy iconColor={theme.colors.grayscale.base} />;
   } else if (copyNode === 'Text') {
     node = <span role="button">Copy</span>;
   }
   return (
     <>
       <CopyToClipboard copyNode={node} {...rest} />
-      <ToastPresenter />
+      <ToastContainer />
     </>
   );
 };
@@ -47,20 +48,14 @@ InteractiveCopyToClipboard.args = {
   text: 'http://superset.apache.org/',
   wrapped: true,
   tooltipText: 'Copy to clipboard',
+  hideTooltip: false,
 };
 
 InteractiveCopyToClipboard.argTypes = {
   onCopyEnd: { action: 'onCopyEnd' },
   copyNode: {
     defaultValue: 'Button',
-    control: { type: 'radio', options: ['Button', 'Icon', 'Text'] },
-  },
-};
-
-InteractiveCopyToClipboard.story = {
-  parameters: {
-    knobs: {
-      disable: true,
-    },
+    control: { type: 'radio' },
+    options: ['Button', 'Icon', 'Text'],
   },
 };

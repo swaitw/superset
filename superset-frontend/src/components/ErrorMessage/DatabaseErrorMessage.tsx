@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
+import { ReactNode } from 'react';
 import { t, tn } from '@superset-ui/core';
 
 import { ErrorMessageComponentProps } from './types';
@@ -36,18 +36,18 @@ function DatabaseErrorMessage({
   error,
   source = 'dashboard',
   subtitle,
-}: ErrorMessageComponentProps<DatabaseErrorExtra>) {
+}: ErrorMessageComponentProps<DatabaseErrorExtra | null>) {
   const { extra, level, message } = error;
 
   const isVisualization = ['dashboard', 'explore'].includes(source);
 
-  const body = (
+  const body = extra && (
     <>
       <p>
         {t('This may be triggered by:')}
         <br />
         {extra.issue_codes
-          .map<React.ReactNode>(issueCode => (
+          ?.map<ReactNode>(issueCode => (
             <IssueCode {...issueCode} key={issueCode.code} />
           ))
           .reduce((prev, curr) => [prev, <br />, curr])}
@@ -75,13 +75,18 @@ function DatabaseErrorMessage({
     </>
   );
 
-  const copyText = `${message}
-${t('This may be triggered by:')}
-${extra.issue_codes.map(issueCode => issueCode.message).join('\n')}`;
+  const copyText = extra?.issue_codes
+    ? t('%(message)s\nThis may be triggered by: \n%(issues)s', {
+        message,
+        issues: extra.issue_codes
+          .map(issueCode => issueCode.message)
+          .join('\n'),
+      })
+    : message;
 
   return (
     <ErrorAlert
-      title={t('%s Error', extra.engine_name || t('DB engine'))}
+      title={t('%s Error', extra?.engine_name || t('DB engine'))}
       subtitle={subtitle}
       level={level}
       source={source}

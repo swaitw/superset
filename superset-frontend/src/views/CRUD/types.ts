@@ -16,37 +16,45 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { QueryState } from '@superset-ui/core';
 import { User } from 'src/types/bootstrapTypes';
+import Database from 'src/types/Database';
 import Owner from 'src/types/Owner';
 
 export type FavoriteStatus = {
   [id: number]: boolean;
 };
 
-export enum TableTabTypes {
-  FAVORITE = 'Favorite',
-  MINE = 'Mine',
+export enum TableTab {
+  Favorite = 'Favorite',
+  Mine = 'Mine',
+  Other = 'Other',
+  Viewed = 'Viewed',
+  Created = 'Created',
+  Edited = 'Edited',
 }
 
-export type Filters = {
+export type Filter = {
   col: string;
   opr: string;
-  value: string;
+  value: string | number;
 };
 
 export interface DashboardTableProps {
   addDangerToast: (message: string) => void;
   addSuccessToast: (message: string) => void;
-  search: string;
   user?: User;
   mine: Array<Dashboard>;
   showThumbnails?: boolean;
-  featureFlag?: boolean;
+  otherTabData: Array<Dashboard>;
+  otherTabFilters: Filter[];
+  otherTabTitle: string;
 }
 
 export interface Dashboard {
+  certified_by?: string;
+  certification_details?: string;
   changed_by_name: string;
-  changed_by_url: string;
   changed_on_delta_humanized?: string;
   changed_on_utc?: string;
   changed_by: string;
@@ -86,14 +94,7 @@ export interface QueryObject {
   sql: string;
   executed_sql: string | null;
   sql_tables?: { catalog?: string; schema: string; table: string }[];
-  status:
-    | 'success'
-    | 'failed'
-    | 'stopped'
-    | 'running'
-    | 'timed_out'
-    | 'scheduled'
-    | 'pending';
+  status: QueryState;
   tab_name: string;
   user: {
     first_name: string;
@@ -109,23 +110,24 @@ export interface QueryObject {
 }
 
 export enum QueryObjectColumns {
-  id = 'id',
-  changed_on = 'changed_on',
-  database = 'database',
-  database_name = 'database.database_name',
-  schema = 'schema',
-  sql = 'sql',
-  executed_sql = 'exceuted_sql',
-  sql_tables = 'sql_tables',
-  status = 'status',
-  tab_name = 'tab_name',
-  user = 'user',
-  user_first_name = 'user.first_name',
-  start_time = 'start_time',
-  end_time = 'end_time',
-  rows = 'rows',
-  tmp_table_name = 'tmp_table_name',
-  tracking_url = 'tracking_url',
+  Id = 'id',
+  ChangedOn = 'changed_on',
+  ChangedBy = 'changed_by',
+  Database = 'database',
+  DatabaseName = 'database.database_name',
+  Schema = 'schema',
+  Sql = 'sql',
+  ExecutedSql = 'executed_sql',
+  SqlTables = 'sql_tables',
+  Status = 'status',
+  TabName = 'tab_name',
+  User = 'user',
+  UserFirstName = 'user.first_name',
+  StartTime = 'start_time',
+  EndTime = 'end_time',
+  Rows = 'rows',
+  TmpTableName = 'tmp_table_name',
+  TrackingUrl = 'tracking_url',
 }
 
 export type ImportResourceName =
@@ -135,12 +137,16 @@ export type ImportResourceName =
   | 'dataset'
   | 'saved_query';
 
-export type DatabaseObject = {
-  allow_run_async?: boolean;
-  database_name?: string;
-  encrypted_extra?: string;
-  extra?: string;
-  impersonate_user?: boolean;
-  server_cert?: string;
-  sqlalchemy_uri: string;
-};
+export interface Tag {
+  changed_on_delta_humanized: string;
+  changed_by: Owner;
+  created_on_delta_humanized: string;
+  name: string;
+  id: number;
+  created_by: Owner;
+  description: string;
+  type: string;
+}
+
+export type DatabaseObject = Partial<Database> &
+  Pick<Database, 'sqlalchemy_uri'>;

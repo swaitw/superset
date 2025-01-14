@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,28 +14,63 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import json
 import logging
+import textwrap
 from dataclasses import dataclass
 from email.utils import make_msgid, parseaddr
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
+import nh3
 from flask_babel import gettext as __
 
 from superset import app
-from superset.models.reports import ReportRecipientType
+from superset.exceptions import SupersetErrorsException
+from superset.reports.models import ReportRecipientType
 from superset.reports.notifications.base import BaseNotification
 from superset.reports.notifications.exceptions import NotificationError
-from superset.utils.core import send_email_smtp
+from superset.utils import json
+from superset.utils.core import HeaderDataType, send_email_smtp
+from superset.utils.decorators import statsd_gauge
 
 logger = logging.getLogger(__name__)
+
+TABLE_TAGS = {"table", "th", "tr", "td", "thead", "tbody", "tfoot"}
+TABLE_ATTRIBUTES = {"colspan", "rowspan", "halign", "border", "class"}
+
+ALLOWED_TAGS = {
+    "a",
+    "abbr",
+    "acronym",
+    "b",
+    "blockquote",
+    "br",
+    "code",
+    "div",
+    "em",
+    "i",
+    "li",
+    "ol",
+    "p",
+    "strong",
+    "ul",
+}.union(TABLE_TAGS)
+
+ALLOWED_TABLE_ATTRIBUTES = {tag: TABLE_ATTRIBUTES for tag in TABLE_TAGS}
+ALLOWED_ATTRIBUTES = {
+    "a": {"href", "title"},
+    "abbr": {"title"},
+    "acronym": {"title"},
+    **ALLOWED_TABLE_ATTRIBUTES,
+}
 
 
 @dataclass
 class EmailContent:
     body: str
-    data: Optional[Dict[str, Any]] = None
-    images: Optional[Dict[str, bytes]] = None
+    header_data: Optional[HeaderDataType] = None
+    data: Optional[dict[str, Any]] = None
+    pdf: Optional[dict[str, bytes]] = None
+    images: Optional[dict[str, bytes]] = None
 
 
 class EmailNotification(BaseNotification):  # pylint: disable=too-few-public-methods
@@ -50,13 +84,17 @@ class EmailNotification(BaseNotification):  # pylint: disable=too-few-public-met
     def _get_smtp_domain() -> str:
         return parseaddr(app.config["SMTP_MAIL_FROM"])[1].split("@")[1]
 
-    @staticmethod
-    def _error_template(text: str) -> str:
+    def _error_template(self, text: str) -> str:
+        call_to_action = self._get_call_to_action()
         return __(
             """
-            Error: %(text)s
-            """,
+            <p>Your report/alert was unable to be generated because of the following error: %(text)s</p>
+            <p>Please check your dashboard/chart for errors.</p>
+            <p><b><a href="%(url)s">%(call_to_action)s</a></b></p>
+            """,  # noqa: E501
             text=text,
+            url=self._content.url,
+            call_to_action=call_to_action,
         )
 
     def _get_content(self) -> EmailContent:
@@ -64,27 +102,90 @@ class EmailNotification(BaseNotification):  # pylint: disable=too-few-public-met
             return EmailContent(body=self._error_template(self._content.text))
         # Get the domain from the 'From' address ..
         # and make a message id without the < > in the end
-        image = None
-        csv_data = None
+
         domain = self._get_smtp_domain()
-        msgid = make_msgid(domain)[1:-1]
-        body = __(
-            """
-            <p>%(description)s</p>
-            <b><a href="%(url)s">Explore in Superset</a></b><p></p>
-            %(img_tag)s
-            """,
-            description=self._content.description or "",
-            url=self._content.url,
-            img_tag='<img width="1000px" src="cid:{}">'.format(msgid)
-            if self._content.screenshot
-            else "",
+        images = {}
+
+        if self._content.screenshots:
+            images = {
+                make_msgid(domain)[1:-1]: screenshot
+                for screenshot in self._content.screenshots
+            }
+
+        # Strip any malicious HTML from the description
+        # pylint: disable=no-member
+        description = nh3.clean(
+            self._content.description or "",
+            tags=ALLOWED_TAGS,
+            attributes=ALLOWED_ATTRIBUTES,
         )
-        if self._content.screenshot:
-            image = {msgid: self._content.screenshot}
+
+        # Strip malicious HTML from embedded data, allowing only table elements
+        if self._content.embedded_data is not None:
+            df = self._content.embedded_data
+            # pylint: disable=no-member
+            html_table = nh3.clean(
+                df.to_html(na_rep="", index=True, escape=True),
+                # pandas will escape the HTML in cells already, so passing
+                # more allowed tags here will not work
+                tags=TABLE_TAGS,
+                attributes=ALLOWED_TABLE_ATTRIBUTES,
+            )
+        else:
+            html_table = ""
+
+        img_tags = []
+        for msgid in images.keys():
+            img_tags.append(
+                f"""<div class="image">
+                    <img width="1000" src="cid:{msgid}">
+                </div>
+                """
+            )
+        img_tag = "".join(img_tags)
+        call_to_action = self._get_call_to_action()
+        body = textwrap.dedent(
+            f"""
+            <html>
+              <head>
+                <style type="text/css">
+                  table, th, td {{
+                    border-collapse: collapse;
+                    border-color: rgb(200, 212, 227);
+                    color: rgb(42, 63, 95);
+                    padding: 4px 8px;
+                  }}
+                  .image{{
+                      margin-bottom: 18px;
+                      min-width: 1000px;
+                  }}
+                </style>
+              </head>
+              <body>
+                <div>{description}</div>
+                <br>
+                <b><a href="{self._content.url}">{call_to_action}</a></b><p></p>
+                {html_table}
+                {img_tag}
+              </body>
+            </html>
+            """
+        )
+        csv_data = None
         if self._content.csv:
             csv_data = {__("%(name)s.csv", name=self._content.name): self._content.csv}
-        return EmailContent(body=body, images=image, data=csv_data)
+
+        pdf_data = None
+        if self._content.pdf:
+            pdf_data = {__("%(name)s.pdf", name=self._content.name): self._content.pdf}
+
+        return EmailContent(
+            body=body,
+            images=images,
+            pdf=pdf_data,
+            data=csv_data,
+            header_data=self._content.header_data,
+        )
 
     def _get_subject(self) -> str:
         return __(
@@ -93,13 +194,28 @@ class EmailNotification(BaseNotification):  # pylint: disable=too-few-public-met
             title=self._content.name,
         )
 
+    def _get_call_to_action(self) -> str:
+        return __(app.config["EMAIL_REPORTS_CTA"])
+
     def _get_to(self) -> str:
         return json.loads(self._recipient.recipient_config_json)["target"]
 
+    def _get_cc(self) -> str:
+        # To accomadate backward compatability
+        return json.loads(self._recipient.recipient_config_json).get("ccTarget", "")
+
+    def _get_bcc(self) -> str:
+        # To accomadate backward compatability
+        return json.loads(self._recipient.recipient_config_json).get("bccTarget", "")
+
+    @statsd_gauge("reports.email.send")
     def send(self) -> None:
         subject = self._get_subject()
         content = self._get_content()
         to = self._get_to()
+        cc = self._get_cc()
+        bcc = self._get_bcc()
+
         try:
             send_email_smtp(
                 to,
@@ -108,11 +224,20 @@ class EmailNotification(BaseNotification):  # pylint: disable=too-few-public-met
                 app.config,
                 files=[],
                 data=content.data,
+                pdf=content.pdf,
                 images=content.images,
-                bcc="",
                 mime_subtype="related",
                 dryrun=False,
+                cc=cc,
+                bcc=bcc,
+                header_data=content.header_data,
             )
-            logger.info("Report sent to email")
+            logger.info(
+                "Report sent to email, notification content is %s", content.header_data
+            )
+        except SupersetErrorsException as ex:
+            raise NotificationError(
+                ";".join([error.message for error in ex.errors])
+            ) from ex
         except Exception as ex:
-            raise NotificationError(ex)
+            raise NotificationError(str(ex)) from ex

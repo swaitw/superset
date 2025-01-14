@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { DatePicker as AntdDatePicker } from 'antd';
+import { DatePicker as AntdDatePicker } from 'antd-v5';
 
-export const { RangePicker } = AntdDatePicker;
 export const DatePicker = AntdDatePicker;
+export const { RangePicker } = AntdDatePicker;

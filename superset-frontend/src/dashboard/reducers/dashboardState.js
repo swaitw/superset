@@ -32,11 +32,24 @@ import {
   TOGGLE_PUBLISHED,
   UPDATE_CSS,
   SET_REFRESH_FREQUENCY,
+  ON_REFRESH,
+  ON_REFRESH_SUCCESS,
   SET_DIRECT_PATH,
   SET_FOCUSED_FILTER_FIELD,
   UNSET_FOCUSED_FILTER_FIELD,
+  SET_ACTIVE_TAB,
   SET_ACTIVE_TABS,
   SET_FULL_SIZE_CHART_ID,
+  ON_FILTERS_REFRESH,
+  ON_FILTERS_REFRESH_SUCCESS,
+  SET_DATASETS_STATUS,
+  SET_OVERRIDE_CONFIRM,
+  SAVE_DASHBOARD_STARTED,
+  SAVE_DASHBOARD_FINISHED,
+  SET_DASHBOARD_LABELS_COLORMAP_SYNCABLE,
+  SET_DASHBOARD_LABELS_COLORMAP_SYNCED,
+  SET_DASHBOARD_SHARED_LABELS_COLORS_SYNCABLE,
+  SET_DASHBOARD_SHARED_LABELS_COLORS_SYNCED,
 } from '../actions/dashboardState';
 import { HYDRATE_DASHBOARD } from '../actions/hydrate';
 
@@ -92,6 +105,30 @@ export default function dashboardStateReducer(state = {}, action) {
         updatedColorScheme: true,
       };
     },
+    [SET_DASHBOARD_LABELS_COLORMAP_SYNCABLE]() {
+      return {
+        ...state,
+        labelsColorMapMustSync: true,
+      };
+    },
+    [SET_DASHBOARD_LABELS_COLORMAP_SYNCED]() {
+      return {
+        ...state,
+        labelsColorMapMustSync: false,
+      };
+    },
+    [SET_DASHBOARD_SHARED_LABELS_COLORS_SYNCABLE]() {
+      return {
+        ...state,
+        sharedLabelsColorsMustSync: true,
+      };
+    },
+    [SET_DASHBOARD_SHARED_LABELS_COLORS_SYNCED]() {
+      return {
+        ...state,
+        sharedLabelsColorsMustSync: false,
+      };
+    },
     [TOGGLE_EXPAND_SLICE]() {
       const updatedExpandedSlices = { ...state.expandedSlices };
       const { sliceId } = action;
@@ -104,6 +141,18 @@ export default function dashboardStateReducer(state = {}, action) {
     },
     [ON_CHANGE]() {
       return { ...state, hasUnsavedChanges: true };
+    },
+    [SAVE_DASHBOARD_STARTED]() {
+      return {
+        ...state,
+        dashboardIsSaving: true,
+      };
+    },
+    [SAVE_DASHBOARD_FINISHED]() {
+      return {
+        ...state,
+        dashboardIsSaving: false,
+      };
     },
     [ON_SAVE]() {
       return {
@@ -128,6 +177,30 @@ export default function dashboardStateReducer(state = {}, action) {
         hasUnsavedChanges: action.isPersistent,
       };
     },
+    [ON_REFRESH]() {
+      return {
+        ...state,
+        isRefreshing: true,
+      };
+    },
+    [ON_FILTERS_REFRESH]() {
+      return {
+        ...state,
+        isFiltersRefreshing: true,
+      };
+    },
+    [ON_FILTERS_REFRESH_SUCCESS]() {
+      return {
+        ...state,
+        isFiltersRefreshing: false,
+      };
+    },
+    [ON_REFRESH_SUCCESS]() {
+      return {
+        ...state,
+        isRefreshing: false,
+      };
+    },
     [SET_DIRECT_PATH]() {
       return {
         ...state,
@@ -135,10 +208,25 @@ export default function dashboardStateReducer(state = {}, action) {
         directPathLastUpdated: Date.now(),
       };
     },
+    [SET_ACTIVE_TAB]() {
+      const newActiveTabs = new Set(state.activeTabs);
+      newActiveTabs.delete(action.prevTabId);
+      newActiveTabs.add(action.tabId);
+      return {
+        ...state,
+        activeTabs: Array.from(newActiveTabs),
+      };
+    },
     [SET_ACTIVE_TABS]() {
       return {
         ...state,
-        activeTabs: action.tabIds,
+        activeTabs: action.activeTabs,
+      };
+    },
+    [SET_OVERRIDE_CONFIRM]() {
+      return {
+        ...state,
+        overwriteConfirmMetadata: action.overwriteConfirmMetadata,
       };
     },
     [SET_FOCUSED_FILTER_FIELD]() {
@@ -170,6 +258,12 @@ export default function dashboardStateReducer(state = {}, action) {
       return {
         ...state,
         fullSizeChartId: action.chartId,
+      };
+    },
+    [SET_DATASETS_STATUS]() {
+      return {
+        ...state,
+        datasetsStatus: action.status,
       };
     },
   };

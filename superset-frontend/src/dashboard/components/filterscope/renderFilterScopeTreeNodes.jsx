@@ -16,11 +16,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import cx from 'classnames';
-
-import ChartIcon from 'src/components/ChartIcon';
+import { styled } from '@superset-ui/core';
+import Icons from 'src/components/Icons';
 import { CHART_TYPE } from 'src/dashboard/util/componentTypes';
+
+const ChartIcon = styled(Icons.BarChartOutlined)`
+  ${({ theme }) => `
+    position: relative;
+    top: ${theme.gridUnit - 1}px;
+    color: ${theme.colors.primary.base};
+    margin-right: ${theme.gridUnit * 2}px;
+  `}
+`;
 
 function traverse({ currentNode = {}, selectedChartId }) {
   if (!currentNode) {
@@ -40,11 +48,7 @@ function traverse({ currentNode = {}, selectedChartId }) {
             'selected-filter': selectedChartId === value,
           })}
         >
-          {type === CHART_TYPE && (
-            <span className="type-indicator">
-              <ChartIcon />
-            </span>
-          )}
+          {type === CHART_TYPE && <ChartIcon />}
           {label}
         </span>
       ),

@@ -19,17 +19,18 @@ import logging
 import re
 import time
 from collections import defaultdict
+from graphlib import TopologicalSorter
 from inspect import getsource
 from pathlib import Path
 from types import ModuleType
-from typing import Dict, List, Set, Type
+from typing import Any
 
 import click
 from flask import current_app
 from flask_appbuilder import Model
 from flask_migrate import downgrade, upgrade
-from graphlib import TopologicalSorter  # pylint: disable=wrong-import-order
-from sqlalchemy import create_engine, inspect, Table
+from progress.bar import ChargingBar
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.ext.automap import automap_base
 
 from superset import db
@@ -43,12 +44,14 @@ def import_migration_script(filepath: Path) -> ModuleType:
     Import migration script as if it were a module.
     """
     spec = importlib.util.spec_from_file_location(filepath.stem, filepath)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore
-    return module
+    if spec:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)  # type: ignore
+        return module
+    raise Exception(f"No module spec found in location: `{str(filepath)}`")
 
 
-def extract_modified_tables(module: ModuleType) -> Set[str]:
+def extract_modified_tables(module: ModuleType) -> set[str]:
     """
     Extract the tables being modified by a migration script.
 
@@ -57,7 +60,7 @@ def extract_modified_tables(module: ModuleType) -> Set[str]:
     actually traversing the AST.
     """
 
-    tables: Set[str] = set()
+    tables: set[str] = set()
     for function in {"upgrade", "downgrade"}:
         source = getsource(getattr(module, function))
         tables.update(re.findall(r'alter_table\(\s*"(\w+?)"\s*\)', source, re.DOTALL))
@@ -67,11 +70,11 @@ def extract_modified_tables(module: ModuleType) -> Set[str]:
     return tables
 
 
-def find_models(module: ModuleType) -> List[Type[Model]]:
+def find_models(module: ModuleType) -> list[type[Model]]:  # noqa: C901
     """
     Find all models in a migration script.
     """
-    models: List[Type[Model]] = []
+    models: list[type[Model]] = []
     tables = extract_modified_tables(module)
 
     # add models defined explicitly in the migration script
@@ -91,23 +94,38 @@ def find_models(module: ModuleType) -> List[Type[Model]]:
     # downgrade
     sqlalchemy_uri = current_app.config["SQLALCHEMY_DATABASE_URI"]
     engine = create_engine(sqlalchemy_uri)
-    Base = automap_base()
+    Base = automap_base()  # noqa: N806
     Base.prepare(engine, reflect=True)
-    for table in tables:
-        model = getattr(Base.classes, table)
+    seen = set()
+    while tables:
+        table = tables.pop()
+        seen.add(table)
+        try:
+            model = getattr(Base.classes, table)
+        except AttributeError:
+            continue
         model.__tablename__ = table
         models.append(model)
+
+        # add other models referenced in foreign keys
+        inspector = inspect(model)
+        for column in inspector.columns.values():
+            for foreign_key in column.foreign_keys:
+                table = foreign_key.column.table.name
+                if table not in seen:
+                    tables.add(table)
 
     # sort topologically so we can create entities in order and
     # maintain relationships (eg, create a database before creating
     # a slice)
-    sorter = TopologicalSorter()
+    sorter: TopologicalSorter[Any] = TopologicalSorter()
     for model in models:
         inspector = inspect(model)
-        dependent_tables: List[str] = []
+        dependent_tables: list[str] = []
         for column in inspector.columns.values():
             for foreign_key in column.foreign_keys:
-                dependent_tables.append(foreign_key.target_fullname.split(".")[0])
+                if foreign_key.column.table.name != model.__tablename__:
+                    dependent_tables.append(foreign_key.column.table.name)
         sorter.add(model.__tablename__, *dependent_tables)
     order = list(sorter.static_order())
     models.sort(key=lambda model: order.index(model.__tablename__))
@@ -120,12 +138,10 @@ def find_models(module: ModuleType) -> List[Type[Model]]:
 @click.option("--limit", default=1000, help="Maximum number of entities.")
 @click.option("--force", is_flag=True, help="Do not prompt for confirmation.")
 @click.option("--no-auto-cleanup", is_flag=True, help="Do not remove created models.")
-def main(
+def main(  # noqa: C901
     filepath: str, limit: int = 1000, force: bool = False, no_auto_cleanup: bool = False
 ) -> None:
     auto_cleanup = not no_auto_cleanup
-    session = db.session()
-
     print(f"Importing migration script: {filepath}")
     module = import_migration_script(Path(filepath))
 
@@ -154,15 +170,14 @@ def main(
 
     print("\nIdentifying models used in the migration:")
     models = find_models(module)
-    model_rows: Dict[Type[Model], int] = {}
+    model_rows: dict[type[Model], int] = {}
     for model in models:
-        rows = session.query(model).count()
+        rows = db.session.query(model).count()
         print(f"- {model.__name__} ({rows} rows in table {model.__tablename__})")
         model_rows[model] = rows
-    session.close()
 
     print("Benchmarking migration")
-    results: Dict[str, float] = {}
+    results: dict[str, float] = {}
     start = time.time()
     upgrade(revision=revision)
     duration = time.time() - start
@@ -170,25 +185,30 @@ def main(
     print(f"Migration on current DB took: {duration:.2f} seconds")
 
     min_entities = 10
-    new_models: Dict[Type[Model], List[Model]] = defaultdict(list)
+    new_models: dict[type[Model], list[Model]] = defaultdict(list)
     while min_entities <= limit:
         downgrade(revision=down_revision)
         print(f"Running with at least {min_entities} entities of each model")
         for model in models:
             missing = min_entities - model_rows[model]
             if missing > 0:
+                entities: list[Model] = []
                 print(f"- Adding {missing} entities to the {model.__name__} model")
+                bar = ChargingBar("Processing", max=missing)
                 try:
-                    added_models = add_sample_rows(session, model, missing)
+                    for entity in add_sample_rows(model, missing):
+                        entities.append(entity)
+                        bar.next()
                 except Exception:
-                    session.rollback()
+                    db.session.rollback()
                     raise
+                bar.finish()
                 model_rows[model] = min_entities
-                session.commit()
+                db.session.add_all(entities)
+                db.session.commit()
 
                 if auto_cleanup:
-                    new_models[model].extend(added_models)
-
+                    new_models[model].extend(entities)
         start = time.time()
         upgrade(revision=revision)
         duration = time.time() - start
@@ -196,23 +216,23 @@ def main(
         results[f"{min_entities}+"] = duration
         min_entities *= 10
 
+    print("\nResults:\n")
+    for label, duration in results.items():
+        print(f"{label}: {duration:.2f} s")
+
     if auto_cleanup:
         print("Cleaning up DB")
         # delete in reverse order of creation to handle relationships
         for model, entities in list(new_models.items())[::-1]:
-            session.query(model).filter(
+            db.session.query(model).filter(
                 model.id.in_(entity.id for entity in entities)
             ).delete(synchronize_session=False)
-        session.commit()
+        db.session.commit()
 
     if current_revision != revision and not force:
         click.confirm(f"\nRevert DB to {revision}?", abort=True)
         upgrade(revision=revision)
         print("Reverted")
-
-    print("\nResults:\n")
-    for label, duration in results.items():
-        print(f"{label}: {duration:.2f} s")
 
 
 if __name__ == "__main__":

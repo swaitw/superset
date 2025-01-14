@@ -16,7 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { Provider } from 'react-redux';
 import {
   render,
@@ -25,22 +24,34 @@ import {
   waitFor,
 } from 'spec/helpers/testing-library';
 import { mockStoreWithChartsInTabsAndRoot } from 'spec/fixtures/mockStore';
-import { Form, FormInstance } from 'src/common/components';
+import { AntdForm, FormInstance } from 'src/components';
 import { NativeFiltersForm } from 'src/dashboard/components/nativeFilters/FiltersConfigModal/types';
-import FiltersConfigForm from 'src/dashboard/components/nativeFilters/FiltersConfigModal/FiltersConfigForm/FiltersConfigForm';
+import FiltersConfigForm, {
+  FilterPanels,
+} from 'src/dashboard/components/nativeFilters/FiltersConfigModal/FiltersConfigForm/FiltersConfigForm';
 
 describe('FilterScope', () => {
   const save = jest.fn();
   let form: FormInstance<NativeFiltersForm>;
   const mockedProps = {
+    expanded: false,
     filterId: 'DefaultFilterId',
+    dependencies: [],
+    setErroredFilters: jest.fn(),
     restoreFilter: jest.fn(),
-    parentFilters: [],
+    getAvailableFilters: () => [],
+    getDependencySuggestion: () => '',
     save,
+    removedFilters: {},
+    handleActiveFilterPanelChange: jest.fn(),
+    activeFilterPanelKeys: `DefaultFilterId-${FilterPanels.configuration.key}`,
+    isActive: true,
+    validateDependencies: jest.fn(),
+    onModifyFilter: jest.fn(),
   };
 
   const MockModal = ({ scope }: { scope?: object }) => {
-    const [newForm] = Form.useForm<NativeFiltersForm>();
+    const [newForm] = AntdForm.useForm<NativeFiltersForm>();
     form = newForm;
     if (scope) {
       form.setFieldsValue({
@@ -53,9 +64,9 @@ describe('FilterScope', () => {
     }
     return (
       <Provider store={mockStoreWithChartsInTabsAndRoot}>
-        <Form form={form}>
+        <AntdForm form={form}>
           <FiltersConfigForm form={form} {...mockedProps} />
-        </Form>
+        </AntdForm>
       </Provider>
     );
   };
@@ -71,8 +82,7 @@ describe('FilterScope', () => {
   it('select tree values with 1 excluded', async () => {
     render(<MockModal />);
     fireEvent.click(screen.getByText('Scoping'));
-    fireEvent.click(screen.getByLabelText('Apply to specific panels'));
-    expect(screen.getByRole('tree')).not.toBe(null);
+    expect(screen.getByRole('tree')).toBeInTheDocument();
     fireEvent.click(getTreeSwitcher(2));
     fireEvent.click(screen.getByText('CHART_ID2'));
     await waitFor(() =>
@@ -88,8 +98,7 @@ describe('FilterScope', () => {
   it('select 1 value only', async () => {
     render(<MockModal />);
     fireEvent.click(screen.getByText('Scoping'));
-    fireEvent.click(screen.getByLabelText('Apply to specific panels'));
-    expect(screen.getByRole('tree')).not.toBe(null);
+    expect(screen.getByRole('tree')).toBeInTheDocument();
     fireEvent.click(getTreeSwitcher(2));
     fireEvent.click(screen.getByText('CHART_ID2'));
     fireEvent.click(screen.getByText('tab1'));
@@ -113,13 +122,12 @@ describe('FilterScope', () => {
       />,
     );
     fireEvent.click(screen.getByText('Scoping'));
-    fireEvent.click(screen.getByLabelText('Apply to specific panels'));
 
     await waitFor(() => {
       expect(screen.getByRole('tree')).toBeInTheDocument();
       expect(
         document.querySelectorAll('.ant-tree-checkbox-checked').length,
-      ).toBe(1);
+      ).toBe(4);
     });
   });
 });

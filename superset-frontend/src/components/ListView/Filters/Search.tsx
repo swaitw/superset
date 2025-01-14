@@ -16,50 +16,90 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { useState } from 'react';
-import SearchInput from 'src/components/SearchInput';
-import { FilterContainer, BaseFilter } from './Base';
+import {
+  forwardRef,
+  useImperativeHandle,
+  useState,
+  RefObject,
+  ChangeEvent,
+} from 'react';
+
+import { t, styled } from '@superset-ui/core';
+import Icons from 'src/components/Icons';
+import { AntdInput } from 'src/components';
+import { SELECT_WIDTH } from 'src/components/ListView/utils';
+import { FormLabel } from 'src/components/Form';
+import InfoTooltip from 'src/components/InfoTooltip';
+import { BaseFilter, FilterHandler } from './Base';
 
 interface SearchHeaderProps extends BaseFilter {
   Header: string;
   onSubmit: (val: string) => void;
   name: string;
+  toolTipDescription: string | undefined;
 }
 
-export default function SearchFilter({
-  Header,
-  name,
-  initialValue,
-  onSubmit,
-}: SearchHeaderProps) {
+const Container = styled.div`
+  width: ${SELECT_WIDTH}px;
+`;
+
+const SearchIcon = styled(Icons.Search)`
+  color: ${({ theme }) => theme.colors.grayscale.light1};
+`;
+
+const StyledInput = styled(AntdInput)`
+  border-radius: ${({ theme }) => theme.gridUnit}px;
+`;
+
+function SearchFilter(
+  {
+    Header,
+    name,
+    initialValue,
+    toolTipDescription,
+    onSubmit,
+  }: SearchHeaderProps,
+  ref: RefObject<FilterHandler>,
+) {
   const [value, setValue] = useState(initialValue || '');
   const handleSubmit = () => {
     if (value) {
       onSubmit(value.trim());
     }
   };
-  const onClear = () => {
-    setValue('');
-    onSubmit('');
-  };
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setValue(e.currentTarget.value);
     if (e.currentTarget.value === '') {
-      onClear();
+      onSubmit('');
     }
   };
 
+  useImperativeHandle(ref, () => ({
+    clearFilter: () => {
+      setValue('');
+      onSubmit('');
+    },
+  }));
+
   return (
-    <FilterContainer>
-      <SearchInput
+    <Container>
+      <FormLabel>{Header}</FormLabel>
+      {toolTipDescription && (
+        <InfoTooltip tooltip={toolTipDescription} viewBox="0 -7 28 28" />
+      )}
+      <StyledInput
+        allowClear
         data-test="filters-search"
-        placeholder={Header}
+        placeholder={t('Type a value')}
         name={name}
         value={value}
         onChange={handleChange}
-        onSubmit={handleSubmit}
-        onClear={onClear}
+        onPressEnter={handleSubmit}
+        onBlur={handleSubmit}
+        prefix={<SearchIcon iconSize="l" />}
       />
-    </FilterContainer>
+    </Container>
   );
 }
+
+export default forwardRef(SearchFilter);

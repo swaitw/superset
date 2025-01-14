@@ -16,12 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { useEffect } from 'react';
-import isEqual from 'lodash/isEqual';
+import { memo, useEffect, useRef } from 'react';
+import { isEqual } from 'lodash';
 import { styled, t } from '@superset-ui/core';
 import { useFilters, usePagination, useSortBy, useTable } from 'react-table';
-import { Empty } from 'src/common/components';
-import { TableCollection, Pagination } from 'src/components/dataViewCommon';
+import { Empty } from 'src/components/EmptyState/Empty';
+import Pagination from 'src/components/Pagination';
+import TableCollection from 'src/components/TableCollection';
 import { SortByType, ServerPagination } from './types';
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -48,6 +49,9 @@ export interface TableViewProps {
   isPaginationSticky?: boolean;
   showRowCount?: boolean;
   scrollTable?: boolean;
+  scrollTopOnPagination?: boolean;
+  small?: boolean;
+  columnsForWrapText?: string[];
 }
 
 const EmptyWrapper = styled.div`
@@ -57,38 +61,54 @@ const EmptyWrapper = styled.div`
 const TableViewStyles = styled.div<{
   isPaginationSticky?: boolean;
   scrollTable?: boolean;
+  small?: boolean;
 }>`
   ${({ scrollTable, theme }) =>
     scrollTable &&
     `
-    height: 380px;
+    flex: 1 1 auto;
     margin-bottom: ${theme.gridUnit * 4}px;
     overflow: auto;
   `}
 
   .table-row {
-    height: 43px;
+    ${({ theme, small }) => !small && `height: ${theme.gridUnit * 11 - 1}px;`}
+
+    .table-cell {
+      ${({ theme, small }) =>
+        small &&
+        `
+        padding-top: ${theme.gridUnit + 1}px;
+        padding-bottom: ${theme.gridUnit + 1}px;
+        line-height: 1.45;
+      `}
+    }
   }
 
   th[role='columnheader'] {
     z-index: 1;
+    border-bottom: ${({ theme }) =>
+      `${theme.gridUnit - 2}px solid ${theme.colors.grayscale.light2}`};
+    ${({ small }) => small && `padding-bottom: 0;`}
   }
+`;
 
-  .pagination-container {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    background-color: ${({ theme }) => theme.colors.grayscale.light5};
+const PaginationStyles = styled.div<{
+  isPaginationSticky?: boolean;
+}>`
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: ${({ theme }) => theme.colors.grayscale.light5};
 
-    ${({ theme, isPaginationSticky }) =>
-      isPaginationSticky &&
-      `
+  ${({ isPaginationSticky }) =>
+    isPaginationSticky &&
+    `
         position: sticky;
         bottom: 0;
         left: 0;
     `};
-  }
 
   .row-count-container {
     margin-top: ${({ theme }) => theme.gridUnit * 2}px;
@@ -109,7 +129,9 @@ const TableView = ({
   noDataText,
   showRowCount = true,
   serverPagination = false,
+  columnsForWrapText,
   onServerPagination = () => {},
+  scrollTopOnPagination = false,
   ...props
 }: TableViewProps) => {
   const initialState = {
@@ -142,6 +164,30 @@ const TableView = ({
     usePagination,
   );
 
+  const content = withPagination ? page : rows;
+
+  let EmptyWrapperComponent;
+  switch (emptyWrapperType) {
+    case EmptyWrapperType.Small:
+      EmptyWrapperComponent = ({ children }: any) => <>{children}</>;
+      break;
+    case EmptyWrapperType.Default:
+    default:
+      EmptyWrapperComponent = ({ children }: any) => (
+        <EmptyWrapper>{children}</EmptyWrapper>
+      );
+  }
+
+  const isEmpty = !loading && content.length === 0;
+  const hasPagination = pageCount > 1 && withPagination;
+  const tableRef = useRef<HTMLTableElement>(null);
+  const handleGotoPage = (p: number) => {
+    if (scrollTopOnPagination) {
+      tableRef?.current?.scroll(0, 0);
+    }
+    gotoPage(p);
+  };
+
   useEffect(() => {
     if (serverPagination && pageIndex !== initialState.pageIndex) {
       onServerPagination({
@@ -159,51 +205,41 @@ const TableView = ({
     }
   }, [sortBy]);
 
-  const content = withPagination ? page : rows;
-
-  let EmptyWrapperComponent;
-  switch (emptyWrapperType) {
-    case EmptyWrapperType.Small:
-      EmptyWrapperComponent = ({ children }: any) => <>{children}</>;
-      break;
-    case EmptyWrapperType.Default:
-    default:
-      EmptyWrapperComponent = ({ children }: any) => (
-        <EmptyWrapper>{children}</EmptyWrapper>
-      );
-  }
-
-  const isEmpty = !loading && content.length === 0;
-
   return (
-    <TableViewStyles {...props}>
-      <TableCollection
-        getTableProps={getTableProps}
-        getTableBodyProps={getTableBodyProps}
-        prepareRow={prepareRow}
-        headerGroups={headerGroups}
-        rows={content}
-        columns={columns}
-        loading={loading}
-      />
-      {isEmpty && (
-        <EmptyWrapperComponent>
-          {noDataText ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={noDataText}
-            />
-          ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </EmptyWrapperComponent>
-      )}
-      {pageCount > 1 && withPagination && (
-        <div className="pagination-container">
+    <>
+      <TableViewStyles {...props} ref={tableRef}>
+        <TableCollection
+          getTableProps={getTableProps}
+          getTableBodyProps={getTableBodyProps}
+          prepareRow={prepareRow}
+          headerGroups={headerGroups}
+          rows={content}
+          columns={columns}
+          loading={loading}
+          columnsForWrapText={columnsForWrapText}
+        />
+        {isEmpty && (
+          <EmptyWrapperComponent>
+            {noDataText ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={noDataText}
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </EmptyWrapperComponent>
+        )}
+      </TableViewStyles>
+      {hasPagination && (
+        <PaginationStyles
+          className="pagination-container"
+          isPaginationSticky={props.isPaginationSticky}
+        >
           <Pagination
             totalPages={pageCount || 0}
             currentPage={pageCount ? pageIndex + 1 : 0}
-            onChange={(p: number) => gotoPage(p - 1)}
+            onChange={(p: number) => handleGotoPage(p - 1)}
             hideFirstAndLastPageLinks
           />
           {showRowCount && (
@@ -217,10 +253,10 @@ const TableView = ({
                 )}
             </div>
           )}
-        </div>
+        </PaginationStyles>
       )}
-    </TableViewStyles>
+    </>
   );
 };
 
-export default React.memo(TableView);
+export default memo(TableView);

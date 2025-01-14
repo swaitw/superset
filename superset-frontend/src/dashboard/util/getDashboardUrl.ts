@@ -16,52 +16,45 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import rison from 'rison';
 import { JsonObject } from '@superset-ui/core';
+import { isEmpty } from 'lodash';
 import { URL_PARAMS } from 'src/constants';
+import { getUrlParam } from 'src/utils/urlUtils';
 import serializeActiveFilterValues from './serializeActiveFilterValues';
-import { DataMaskState } from '../../dataMask/types';
 
 export default function getDashboardUrl({
   pathname,
   filters = {},
   hash = '',
   standalone,
-  dataMask,
 }: {
   pathname: string;
   filters: JsonObject;
   hash: string;
   standalone?: number | null;
-  dataMask?: DataMaskState;
 }) {
-  const newSearchParams = new URLSearchParams();
+  const newSearchParams = new URLSearchParams(window.location.search);
 
-  // convert flattened { [id_column]: values } object
-  // to nested filter object
-  newSearchParams.set(
-    URL_PARAMS.preselectFilters.name,
-    JSON.stringify(serializeActiveFilterValues(filters)),
-  );
+  if (!isEmpty(filters)) {
+    // convert flattened { [id_column]: values } object
+    // to nested filter object
+    newSearchParams.set(
+      URL_PARAMS.preselectFilters.name,
+      JSON.stringify(serializeActiveFilterValues(filters)),
+    );
+  }
 
   if (standalone) {
     newSearchParams.set(URL_PARAMS.standalone.name, standalone.toString());
+  } else {
+    newSearchParams.delete(URL_PARAMS.standalone.name);
   }
 
-  if (dataMask) {
-    const filterStates = Object.entries(dataMask).reduce(
-      (agg, [key, value]) => {
-        const filterState = value?.filterState?.value;
-        return {
-          ...agg,
-          [key]: filterState || null,
-        };
-      },
-      {},
-    );
+  const dataMaskKey = getUrlParam(URL_PARAMS.nativeFiltersKey);
+  if (dataMaskKey) {
     newSearchParams.set(
-      URL_PARAMS.nativeFilters.name,
-      rison.encode(filterStates),
+      URL_PARAMS.nativeFiltersKey.name,
+      dataMaskKey as string,
     );
   }
 

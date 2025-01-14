@@ -16,13 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
-import { render, screen } from 'spec/helpers/testing-library';
 import userEvent from '@testing-library/user-event';
-import { Filter } from 'src/dashboard/components/nativeFilters/types';
-import { FormInstance } from 'src/common/components';
-import { getControlItems, setNativeFilterFieldValues } from './utils';
+import { Filter, NativeFilterType } from '@superset-ui/core';
+import { render, screen } from 'spec/helpers/testing-library';
+import { FormInstance } from 'src/components';
 import getControlItemsMap, { ControlItemsProps } from './getControlItemsMap';
+import { getControlItems, setNativeFilterFieldValues } from './utils';
 
 jest.mock('./utils', () => ({
   getControlItems: jest.fn(),
@@ -60,15 +59,20 @@ const filterMock: Filter = {
   filterType: '',
   targets: [{}],
   controlValues: {},
+  type: NativeFilterType.NativeFilter,
+  description: '',
 };
 
 const createProps: () => ControlItemsProps = () => ({
+  expanded: false,
+  datasetId: 1,
   disabled: false,
   forceUpdate: jest.fn(),
   form: formMock,
   filterId: 'filterId',
   filterToEdit: filterMock,
   filterType: 'filterType',
+  formChanged: jest.fn(),
 });
 
 const createControlItems = () => [
@@ -119,6 +123,16 @@ test('Should render null empty when "getControlItems" return []', () => {
   expect(container.children).toHaveLength(0);
 });
 
+test('Should render null empty when "getControlItems" return enableSingleValue', () => {
+  const props = createProps();
+  (getControlItems as jest.Mock).mockReturnValue([
+    { name: 'enableSingleValue', config: { renderTrigger: true } },
+  ]);
+  const controlItemsMap = getControlItemsMap(props);
+  const { container } = renderControlItems(controlItemsMap);
+  expect(container.children).toHaveLength(0);
+});
+
 test('Should render null empty when "controlItems" are falsy', () => {
   const props = createProps();
   const controlItems = [null, false, {}, { config: { renderTrigger: false } }];
@@ -128,7 +142,7 @@ test('Should render null empty when "controlItems" are falsy', () => {
   expect(container.children).toHaveLength(0);
 });
 
-test('Should render render ControlItems', () => {
+test('Should render ControlItems', () => {
   const props = createProps();
 
   const controlItems = [
@@ -141,28 +155,28 @@ test('Should render render ControlItems', () => {
   expect(screen.getAllByRole('checkbox')).toHaveLength(2);
 });
 
-test('Clickin on checkbox', () => {
+test('Clicking on checkbox', () => {
   const props = createProps();
   (getControlItems as jest.Mock).mockReturnValue(createControlItems());
   const controlItemsMap = getControlItemsMap(props);
   renderControlItems(controlItemsMap);
-  expect(props.forceUpdate).not.toBeCalled();
-  expect(setNativeFilterFieldValues).not.toBeCalled();
+  expect(props.forceUpdate).not.toHaveBeenCalled();
+  expect(setNativeFilterFieldValues).not.toHaveBeenCalled();
   userEvent.click(screen.getByRole('checkbox'));
-  expect(setNativeFilterFieldValues).toBeCalled();
-  expect(props.forceUpdate).toBeCalled();
+  expect(setNativeFilterFieldValues).toHaveBeenCalled();
+  expect(props.forceUpdate).toHaveBeenCalled();
 });
 
-test('Clickin on checkbox when resetConfig:flase', () => {
+test('Clicking on checkbox when resetConfig:false', () => {
   const props = createProps();
   (getControlItems as jest.Mock).mockReturnValue([
     { name: 'name_1', config: { renderTrigger: true, resetConfig: false } },
   ]);
   const controlItemsMap = getControlItemsMap(props);
   renderControlItems(controlItemsMap);
-  expect(props.forceUpdate).not.toBeCalled();
-  expect(setNativeFilterFieldValues).not.toBeCalled();
+  expect(props.forceUpdate).not.toHaveBeenCalled();
+  expect(setNativeFilterFieldValues).not.toHaveBeenCalled();
   userEvent.click(screen.getByRole('checkbox'));
-  expect(props.forceUpdate).toBeCalled();
-  expect(setNativeFilterFieldValues).not.toBeCalled();
+  expect(props.forceUpdate).toHaveBeenCalled();
+  expect(setNativeFilterFieldValues).not.toHaveBeenCalled();
 });
